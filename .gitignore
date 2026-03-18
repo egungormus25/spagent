@@ -8,6 +8,10 @@ ENV/
 *.so
 *.dll
 *.gif
+*.png
+*.jpg
+*.jpeg
+*.mp4
 
 # Python cache
 __pycache__/

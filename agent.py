@@ -17,7 +17,7 @@ except ImportError as e:
     sys.exit(1)
 
 # --- AYARLAR ---
-VERSION = "1.0.1"  # Launcher bu versiyonu kontrol eder.
+VERSION = "1.0.2"  # Launcher bu versiyonu kontrol eder.
 PROJECT_ID = "speedpoint-928e1"
 MACHINE_ID = "PC_01"  # Diğer masalar için PC_02, PC_03 yapabilirsin
 FIRESTORE_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/machines/{MACHINE_ID}"

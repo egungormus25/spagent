@@ -7,7 +7,7 @@ import re
 
 # --- AYARLAR ---
 # GitHub Gist veya kendi sunucundaki "Raw" dosya linki
-UPDATE_URL = "https://raw.githubusercontent.com/kullanici_adin/repo_adin/main/agent.py"
+UPDATE_URL = "https://raw.githubusercontent.com/egungormus25/spagent/refs/heads/main/agent.py"
 LOCAL_FILE = "agent.py"
 VERSION_FILE = "version.txt" # Not: Bu dosya şu anki yapıda kullanılmıyor.
 
