@@ -1,0 +1,14 @@
+# Python Virtual Environment
+env/
+venv/
+ENV/
+
+# Large Binaries & Assets
+*.dylib
+*.so
+*.dll
+*.gif
+
+# Python cache
+__pycache__/
+*.pyc
