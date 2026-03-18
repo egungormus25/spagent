@@ -82,6 +82,6 @@ def update_and_launch():
 
 if __name__ == "__main__":
     while True:
-        update_and_launch()
+        # update_and_launch()
         print("Agent işlemi durdu. 5 saniye sonra yeniden başlatılacak...")
-        time.sleep(5)
+        # time.sleep(5)
