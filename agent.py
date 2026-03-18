@@ -9,7 +9,7 @@ import logging
 import sys
 
 # --- AYARLAR ---
-VERSION = "1.0.4"  # Launcher bu versiyonu kontrol eder.
+VERSION = "1.0.5"  # Launcher bu versiyonu kontrol eder.
 PROJECT_ID = "speedpoint-928e1"
 MACHINE_ID = "PC_01"  # Diğer masalar için PC_02, PC_03 yapabilirsin
 FIRESTORE_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/machines/{MACHINE_ID}"
@@ -139,14 +139,15 @@ class SpeedPointAgent:
     def load_assets_and_start(self):
         if os.path.exists("background.gif"):
             try:
-                gif_obj = Image.open("background.gif")
-                sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-                self.bg_frames = []
-                for i, frame in enumerate(ImageSequence.Iterator(gif_obj)):
-                    if i % 10 == 0: 
-                        # Daha kaliteli büyütme/küçültme için LANCZOS kullanıldı
-                        resized = frame.copy().convert('RGBA').resize((sw, sh), Image.Resampling.LANCZOS)
-                        self.bg_frames.append(ImageTk.PhotoImage(resized))
+                # 'with' bloğu kullanarak dosyanın her zaman düzgün bir şekilde kapatılmasını sağlayın.
+                # Bu, dosya tanıtıcılarının (file handles) sızmasını ve olası kaynak sorunlarını önler.
+                with Image.open("background.gif") as gif_obj:
+                    sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+                    self.bg_frames = []
+                    for i, frame in enumerate(ImageSequence.Iterator(gif_obj)):
+                        if i % 10 == 0: 
+                            resized = frame.copy().convert('RGBA').resize((sw, sh), Image.Resampling.LANCZOS)
+                            self.bg_frames.append(ImageTk.PhotoImage(resized))
             except Exception as e:
                 logging.error(f"background.gif yüklenemedi veya işlenemedi: {e}")
                 self.bg_frames = [] # Hata durumunda listenin boş olduğundan emin ol
