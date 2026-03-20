@@ -116,20 +116,17 @@ class SpeedPointAgent(QWidget):
         self.scale_factor = screen_size.width() / 3840.0 
         if self.scale_factor < 0.6: self.scale_factor = 0.6
         
-        # 💡 Always On Top ayarı burada kritik kanka
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.showFullScreen()
         
         self.main_stacked = QStackedLayout(self)
         self.main_stacked.setStackingMode(QStackedLayout.StackAll)
 
-        # 1. TAM EKRAN UI
         self.full_ui = QStackedWidget()
         self.setup_locked_view()
         self.setup_active_view()
         self.main_stacked.addWidget(self.full_ui)
 
-        # 2. MINI OVERLAY (PILL) - Başlangıçta gizli
         self.mini_pill = QFrame()
         self.setup_mini_pill()
         self.main_stacked.addWidget(self.mini_pill)
@@ -155,13 +152,9 @@ class SpeedPointAgent(QWidget):
         self.mini_pill.setFixedSize(int(400*self.scale_factor), int(100*self.scale_factor))
         self.mini_pill.setStyleSheet("background: rgba(20, 20, 20, 220); border-radius: 50px; border: 2px solid #E50914;")
         self.mini_pill.setVisible(False)
-        
-        pill_lay = QHBoxLayout(self.mini_pill)
-        self.mini_timer = QLabel("00:00")
+        pill_lay = QHBoxLayout(self.mini_pill); self.mini_timer = QLabel("00:00")
         self.mini_timer.setStyleSheet(f"color: white; font-size: {int(36*self.scale_factor)}px; font-weight: 900;")
-        pill_lay.addStretch()
-        pill_lay.addWidget(self.mini_timer)
-        pill_lay.addStretch()
+        pill_lay.addStretch(); pill_lay.addWidget(self.mini_timer); pill_lay.addStretch()
 
     def setup_locked_view(self):
         self.locked_widget = QWidget()
@@ -185,22 +178,19 @@ class SpeedPointAgent(QWidget):
         self.bg_label = QLabel()
         b_path = os.path.join(os.path.dirname(__file__), BACKGROUND_IMAGE_FILE)
         if os.path.exists(b_path):
-            pix = QPixmap(b_path)
-            self.bg_label.setPixmap(pix.scaled(QApplication.primaryScreen().size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
+            pix = QPixmap(b_path); self.bg_label.setPixmap(pix.scaled(QApplication.primaryScreen().size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
             blur = QGraphicsBlurEffect(); blur.setBlurRadius(250); self.bg_label.setGraphicsEffect(blur)
         self.scrim_overlay = QFrame(); self.scrim_overlay.setStyleSheet("background-color: rgba(0, 0, 0, 160);")
         ui_frame = QFrame(); ui_frame.setAttribute(Qt.WA_TranslucentBackground)
         ui_lay = QVBoxLayout(ui_frame); ui_lay.setContentsMargins(120*self.scale_factor, 100*self.scale_factor, 120*self.scale_factor, 100*self.scale_factor)
-        header = QHBoxLayout()
-        self.logo = QLabel()
+        header = QHBoxLayout(); self.logo = QLabel()
         l_path = os.path.join(os.path.dirname(__file__), LOGO_FILE)
         if os.path.exists(l_path): self.logo.setPixmap(QPixmap(l_path).scaledToHeight(int(140*self.scale_factor), Qt.SmoothTransformation))
         v_header = QVBoxLayout()
         self.welcome_label = QLabel("HOŞ GELDİN"); self.welcome_label.setStyleSheet(f"color: white; font-size: {int(36*self.scale_factor)}px; font-weight: bold;")
         self.timer_label = QLabel("00:00"); self.timer_label.setStyleSheet(f"color: {NETFLIX_RED}; font-size: {int(60*self.scale_factor)}px; font-weight: 900;")
         v_header.addWidget(self.welcome_label); v_header.addWidget(self.timer_label)
-        header.addLayout(v_header); header.addStretch(); header.addWidget(self.logo)
-        ui_lay.addLayout(header)
+        header.addLayout(v_header); header.addStretch(); header.addWidget(self.logo); ui_lay.addLayout(header)
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True); self.scroll.setStyleSheet("background: transparent; border: none;")
         self.scroll_content = QWidget(); self.grid_container = QVBoxLayout(self.scroll_content); self.grid_container.setAlignment(Qt.AlignCenter)
         self.grid = QGridLayout(); self.grid.setSpacing(80 * self.scale_factor); self.grid.setAlignment(Qt.AlignCenter)
@@ -220,21 +210,13 @@ class SpeedPointAgent(QWidget):
         lay.addWidget(box, 0, Qt.AlignCenter)
 
     def switch_to_mini(self):
-        # 💡 Oyun açıldığında ekranı küçültüp sağ üste atıyoruz kanka
-        self.is_mini_mode = True
-        self.full_ui.setVisible(False)
-        self.mini_pill.setVisible(True)
-        
-        # Ekranın sağ üst köşesine taşı kanka
+        self.is_mini_mode = True; self.full_ui.setVisible(False); self.mini_pill.setVisible(True)
         screen_geo = QApplication.primaryScreen().geometry()
         pill_w, pill_h = self.mini_pill.width(), self.mini_pill.height()
         self.setGeometry(screen_geo.width() - pill_w - 50, 50, pill_w, pill_h)
 
     def switch_to_full(self):
-        self.is_mini_mode = False
-        self.mini_pill.setVisible(False)
-        self.full_ui.setVisible(True)
-        self.showFullScreen()
+        self.is_mini_mode = False; self.mini_pill.setVisible(False); self.full_ui.setVisible(True); self.showFullScreen()
 
     def sync_status(self, locked_cloud, time_cloud, user_name):
         self.welcome_label.setText(f"HOŞ GELDİN, {user_name.upper()}")
@@ -252,9 +234,7 @@ class SpeedPointAgent(QWidget):
         if not self.is_locked and self.remaining_seconds > 0:
             self.remaining_seconds -= 1
             mins, secs = divmod(self.remaining_seconds, 60)
-            t_str = f"{mins:02d}:{secs:02d}"
-            self.timer_label.setText(t_str)
-            self.mini_timer.setText(t_str)
+            t_str = f"{mins:02d}:{secs:02d}"; self.timer_label.setText(t_str); self.mini_timer.setText(t_str)
             if self.remaining_seconds <= 0: self.sync_status(True, 0, "YARIŞÇI")
 
     def render_games(self, games):
@@ -262,23 +242,27 @@ class SpeedPointAgent(QWidget):
             item = self.grid.takeAt(0); item.widget().deleteLater()
         for i, game in enumerate(games):
             card = GameCard(game["title"], game["imageUrl"], game["localPath"], self.loader, self.scale_factor)
-            card.clicked.connect(self.launch_game)
-            self.grid.addWidget(card, i // 3, i % 3)
+            card.clicked.connect(self.launch_game); self.grid.addWidget(card, i // 3, i % 3)
 
     def launch_game(self, path):
-        if not self.is_locked and path:
-            print(f"🚀 Oyun Başlatıldı, Mini Moda Geçiliyor...")
-            self.switch_to_mini() # 💡 Kapsül moduna geç
-            subprocess.Popen(["open", path] if sys.platform == "darwin" else path)
+        if not self.is_locked and path: self.switch_to_mini(); subprocess.Popen(["open", path] if sys.platform == "darwin" else path)
 
     def check_pin(self):
         if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN")
         self.pin_input.clear()
 
+    # --- 🧠 TUŞ KOMBİNASYONU YÖNETİMİ ---
     def keyPressEvent(self, event):
-        # 💡 Admin girişi veya Full ekrana geri dönüş (Geliştirme için kanka)
+        # 💡 ACİL ÇIKIŞ: Ctrl + Shift + X (veya Cmd + Shift + X)
+        if event.key() == Qt.Key_X and (event.modifiers() & Qt.ControlModifier or event.modifiers() & Qt.MetaModifier) and (event.modifiers() & Qt.ShiftModifier):
+            print("🚨 ACİL ÇIKIŞ TETİKLENDİ! Agent kapatılıyor...")
+            QApplication.quit()
+
+        # Mini moddan full ekrana dön: ESC
         if event.key() == Qt.Key_Escape and self.is_mini_mode:
             self.switch_to_full()
+            
+        # Admin Panel: Ctrl + Shift + M
         if event.key() == Qt.Key_M and (event.modifiers() & Qt.ControlModifier or event.modifiers() & Qt.MetaModifier) and (event.modifiers() & Qt.ShiftModifier):
             self.admin_overlay.setGeometry(0, 0, self.width(), self.height()); self.admin_overlay.setVisible(True); self.pin_input.setFocus()
 
