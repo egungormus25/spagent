@@ -22,7 +22,6 @@ BACKGROUND_IMAGE_FILE = "supercar_bg.jpg"
 PIN_CODE = "1923"
 
 NETFLIX_RED = "#E50914"
-NETFLIX_BLACK = "#141414"
 
 # --- 📡 NETWORK MOTORU ---
 class NetworkWorker(QObject):
@@ -70,11 +69,21 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
-# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL (HAYALET MOD) ---
+# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL (NÜKLEER BYPASS MODU) ---
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
+        # 💡 THE MAGIC FLAG: Qt.BypassWindowManagerHint
+        # Bu bayrak, Windows'un bu pencereyi yönetmeyi bırakmasını sağlar. 
+        # Assetto Corsa tam ekran yaparken bu kapsülü BİR PROGRAM OLARAK GÖRMEZ.
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | 
+            Qt.WindowStaysOnTopHint | 
+            Qt.Tool | 
+            Qt.WindowDoesNotAcceptFocus | 
+            Qt.WindowTransparentForInput | 
+            Qt.BypassWindowManagerHint 
+        )
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating) 
         
@@ -91,7 +100,7 @@ class MiniPillWindow(QWidget):
         self.timer_label.setStyleSheet(f"color: {NETFLIX_RED}; font-size: {int(32 * scale_factor)}px; font-weight: 900;")
         top_lay.addWidget(self.user_label); top_lay.addStretch(); top_lay.addWidget(self.timer_label)
         
-        self.telemetry_label = QLabel("OYUN BAŞLATILIYOR VEYA LOBİ BEKLENİYOR...")
+        self.telemetry_label = QLabel("OYUN BEKLENİYOR...")
         self.telemetry_label.setAlignment(Qt.AlignCenter)
         self.telemetry_label.setStyleSheet(f"color: #AAA; font-size: {int(18 * scale_factor)}px; font-weight: bold;")
         
@@ -185,7 +194,6 @@ class SpeedPointAgent(QWidget):
         self.scale_factor = screen_size.width() / 3840.0 
         if self.scale_factor < 0.6: self.scale_factor = 0.6
         
-        # Başlangıçta Kiosk modunda her şeyin üstünde ve tam ekran
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.showFullScreen()
         
@@ -195,7 +203,6 @@ class SpeedPointAgent(QWidget):
         self.full_ui = QStackedWidget()
         self.setup_locked_view()     # Index 0
         self.setup_active_view()     # Index 1
-        self.setup_loading_view()    # Index 2 (Simsiyah Kalkan)
         self.main_stacked.addWidget(self.full_ui)
 
         self.setup_admin_panel()
@@ -256,20 +263,6 @@ class SpeedPointAgent(QWidget):
         lay.addWidget(self.bg_label, 0, 0); lay.addWidget(self.scrim_overlay, 0, 0); lay.addWidget(ui_frame, 0, 0)
         self.full_ui.addWidget(self.active_widget)
 
-    def setup_loading_view(self):
-        # 💡 SİMSİYAH KALKAN: Masaüstünü gizler, Assetto Corsa'nın arka planda açılmasına zemin hazırlar.
-        self.loading_widget = QWidget()
-        self.loading_widget.setStyleSheet(f"background-color: {NETFLIX_BLACK};")
-        lay = QVBoxLayout(self.loading_widget)
-        logo = QLabel()
-        l_path = os.path.join(os.path.dirname(__file__), LOGO_FILE)
-        if os.path.exists(l_path): logo.setPixmap(QPixmap(l_path).scaledToHeight(int(200*self.scale_factor), Qt.SmoothTransformation))
-        text = QLabel("OYUN YÜKLENİYOR...\nLÜTFEN BEKLEYİN")
-        text.setAlignment(Qt.AlignCenter)
-        text.setStyleSheet(f"color: white; font-size: {int(50*self.scale_factor)}px; font-weight: 900;")
-        lay.addStretch(); lay.addWidget(logo, alignment=Qt.AlignCenter); lay.addSpacing(50); lay.addWidget(text, alignment=Qt.AlignCenter); lay.addStretch()
-        self.full_ui.addWidget(self.loading_widget)
-
     def setup_admin_panel(self):
         self.admin_overlay = QFrame(self); self.admin_overlay.setStyleSheet("background: rgba(0,0,0,230);"); self.admin_overlay.setVisible(False)
         lay = QVBoxLayout(self.admin_overlay); box = QFrame(); box.setFixedSize(int(600*self.scale_factor), int(400*self.scale_factor))
@@ -284,8 +277,8 @@ class SpeedPointAgent(QWidget):
     def switch_to_full(self):
         self.is_mini_mode = False
         self.mini_window.hide()
-        # Ana ekrana dönerken Kiosk zırhını (StaysOnTop) tekrar giyiyoruz
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        # 💡 PENCEREYİ GERİ GETİR (Görev çubuğundan çıkar, tam ekran yap)
+        self.showNormal()
         self.showFullScreen()
         self.full_ui.setCurrentIndex(1 if not self.is_locked else 0)
 
@@ -332,47 +325,30 @@ class SpeedPointAgent(QWidget):
             card.clicked.connect(self.launch_game)
             self.grid.addWidget(card, i // 3, i % 3)
 
-    # 💡 THE ULTIMATE ANTI-CRASH LAUNCHER (Odak Çalmayı %100 Engelleyen Sistem)
+    # 💡 NÜKLEER ÇÖZÜM: Masaüstüne Teslimiyet
     def launch_game(self, path):
         if self.is_locked or not path or self.is_mini_mode: return 
         self.is_mini_mode = True
         self.current_game_exe = os.path.basename(path).strip('"')
         
-        # 1. Ana UI'ı "Siyah Kalkan" ekranına (Index 2) çeviriyoruz. 
-        # (Bu sayede masaüstü gizleniyor ama pencere kapanmadığı için OS şok olmuyor)
-        self.full_ui.setCurrentIndex(2) 
+        # 1. Ana UI'ı TAMAMEN KÜÇÜLT (Görev çubuğuna at)
+        # Bu hamle, Windows'a "Ben yokum, ekran kiminse (Assetto Corsa'nın) ona ver" demektir.
+        self.showMinimized() 
         
-        # 2. Hayalet Kapsülü ekrana konumlandırıyoruz.
+        # 2. Mini Kapsülü Göster
         screen_geo = QApplication.primaryScreen().geometry()
         pill_w, pill_h = self.mini_window.width(), self.mini_window.height()
         self.mini_window.move(screen_geo.width() - pill_w - 20, 20)
         self.mini_window.show()
 
-        # 3. KRİTİK ADIM: Kiosk programımızdan "Her Zaman Üstte Kal" (StaysOnTop) zırhını çıkarıyoruz.
-        # Neden? Çünkü Assetto Corsa tam ekran yaparken, üstte takılı kalmış bir pencere görürse (DirectX Exclusive Mode ihlali) çöker.
-        self.setWindowFlags(Qt.FramelessWindowHint)
-        self.showFullScreen() # Bayrakları tazelemek için
-
-        # 4. Kalkanın ekrana çizilmesini GARANTİYE ALIYORUZ.
-        QApplication.processEvents()
-        
-        # 5. KRİTİK ADIM 2: Windows'un bu UI değişimlerini sindirmesi için 1.5 saniye mola veriyoruz.
-        # Eğer bunu yapmazsak os.startfile oyun motoruyla yarışa girip odak çalar.
-        QTimer.singleShot(1500, lambda: self._execute_launch(path))
-
-    def _execute_launch(self, path):
-        # 6. Windows 1.5 saniye dinlendi, hiçbir UI değişikliği kalmadı. ŞİMDİ OYUNU ATEŞLE!
+        # 3. Oyunu Ateşle
         try:
             if sys.platform == "darwin": subprocess.Popen(["open", path])
             elif sys.platform == "win32": os.startfile(path)
             else: subprocess.Popen([path])
         except Exception as e:
             self.switch_to_full()
-            print(f"❌ Oyun başlatılamadı kanka: {e}")
-
-        # Not: Oyun çalışırken bizim Kiosk arka planda siyah ekran (Index 2) olarak açık kalmaya devam ediyor!
-        # Böylece Assetto Corsa'nın arkasında masaüstü değil, siyah bir kalkan duruyor. 
-        # .hide() kullanmadığımız için de odak (focus) hırsızlığı olmuyor!
+            print(f"❌ Oyun başlatılamadı: {e}")
 
     def check_pin(self):
         if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN")
