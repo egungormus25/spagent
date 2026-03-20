@@ -70,17 +70,34 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
+# --- 🛡️ HAYALET KALKAN (Masaüstünü gizler ama odak çalmaz) ---
+class LoadingShield(QWidget):
+    def __init__(self, scale_factor):
+        super().__init__()
+        # 💡 SİHİR BURADA: Tool, DoesNotAcceptFocus, TransparentForInput. Bu bir pencere değil, hologramdır!
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
+        self.setAttribute(Qt.WA_ShowWithoutActivating) # Ekrana gelirken Windows'u asla uyandırma
+        self.setStyleSheet(f"background-color: {NETFLIX_BLACK};")
+        
+        screen_geo = QApplication.primaryScreen().geometry()
+        self.setGeometry(screen_geo) # Tüm ekranı kapla
+        
+        lay = QVBoxLayout(self)
+        logo = QLabel()
+        l_path = os.path.join(os.path.dirname(__file__), LOGO_FILE)
+        if os.path.exists(l_path): 
+            logo.setPixmap(QPixmap(l_path).scaledToHeight(int(200*scale_factor), Qt.SmoothTransformation))
+        text = QLabel("OYUN BAŞLATILIYOR...\nLÜTFEN BEKLEYİN")
+        text.setAlignment(Qt.AlignCenter)
+        text.setStyleSheet(f"color: white; font-size: {int(50*scale_factor)}px; font-weight: 900;")
+        
+        lay.addStretch(); lay.addWidget(logo, alignment=Qt.AlignCenter); lay.addSpacing(50); lay.addWidget(text, alignment=Qt.AlignCenter); lay.addStretch()
+
 # --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL (HAYALET MOD) ---
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
-        self.setWindowFlags(
-            Qt.FramelessWindowHint | 
-            Qt.WindowStaysOnTopHint | 
-            Qt.Tool | 
-            Qt.WindowDoesNotAcceptFocus | 
-            Qt.WindowTransparentForInput
-        )
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating) 
         
@@ -121,7 +138,6 @@ class MiniPillWindow(QWidget):
 # --- 🏎️ ASSETTO CORSA TELEMETRİ MOTORU ---
 class ACTelemetryWorker(QObject):
     telemetry_updated = Signal(str, str, str)
-
     def run(self):
         if sys.platform != "win32": return
         import ctypes; import mmap
@@ -192,9 +208,7 @@ class SpeedPointAgent(QWidget):
         self.scale_factor = screen_size.width() / 3840.0 
         if self.scale_factor < 0.6: self.scale_factor = 0.6
         
-        # 💡 KRİTİK: Ana pencereden "WindowStaysOnTopHint" özelliğini kaldırdım!
-        # Artık oyun açıldığında bizim ekranımızla "hangimiz üstte kalacak" kavgasına girmeyecek.
-        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setWindowFlags(Qt.FramelessWindowHint) # StaysOnTop kaldırıldı
         self.showFullScreen()
         
         self.main_stacked = QStackedLayout(self)
@@ -203,13 +217,16 @@ class SpeedPointAgent(QWidget):
         self.full_ui = QStackedWidget()
         self.setup_locked_view()     # Index 0
         self.setup_active_view()     # Index 1
-        self.setup_loading_view()    # Index 2
         self.main_stacked.addWidget(self.full_ui)
 
         self.setup_admin_panel()
 
         self.loader = ImageLoader()
         self.loader.done.connect(lambda pix, lbl: lbl.setPixmap(pix))
+        
+        # Hayalet Ekranlar Başlatılıyor (Gizli olarak)
+        self.shield_window = LoadingShield(self.scale_factor)
+        self.shield_window.hide()
         
         self.mini_window = MiniPillWindow(self.scale_factor)
         self.mini_window.hide()
@@ -264,14 +281,6 @@ class SpeedPointAgent(QWidget):
         lay.addWidget(self.bg_label, 0, 0); lay.addWidget(self.scrim_overlay, 0, 0); lay.addWidget(ui_frame, 0, 0)
         self.full_ui.addWidget(self.active_widget)
 
-    def setup_loading_view(self):
-        self.loading_widget = QWidget(); self.loading_widget.setStyleSheet(f"background-color: {NETFLIX_BLACK};"); lay = QVBoxLayout(self.loading_widget)
-        logo = QLabel(); l_path = os.path.join(os.path.dirname(__file__), LOGO_FILE)
-        if os.path.exists(l_path): logo.setPixmap(QPixmap(l_path).scaledToHeight(int(200*self.scale_factor), Qt.SmoothTransformation))
-        text = QLabel("OYUN BAŞLATILIYOR...\nLÜTFEN BEKLEYİN"); text.setAlignment(Qt.AlignCenter); text.setStyleSheet(f"color: white; font-size: {int(50*self.scale_factor)}px; font-weight: 900;")
-        lay.addStretch(); lay.addWidget(logo, alignment=Qt.AlignCenter); lay.addSpacing(50); lay.addWidget(text, alignment=Qt.AlignCenter); lay.addStretch()
-        self.full_ui.addWidget(self.loading_widget)
-
     def setup_admin_panel(self):
         self.admin_overlay = QFrame(self); self.admin_overlay.setStyleSheet("background: rgba(0,0,0,230);"); self.admin_overlay.setVisible(False)
         lay = QVBoxLayout(self.admin_overlay); box = QFrame(); box.setFixedSize(int(600*self.scale_factor), int(400*self.scale_factor))
@@ -285,6 +294,7 @@ class SpeedPointAgent(QWidget):
 
     def switch_to_full(self):
         self.is_mini_mode = False
+        self.shield_window.hide()
         self.mini_window.hide()
         self.showFullScreen()
         self.full_ui.setCurrentIndex(1 if not self.is_locked else 0)
@@ -317,7 +327,6 @@ class SpeedPointAgent(QWidget):
             self.remaining_seconds -= 1
             mins, secs = divmod(self.remaining_seconds, 60)
             t_str = f"{mins:02d}:{secs:02d}"
-            
             self.timer_label.setText(t_str)
             self.mini_window.update_time_and_user(t_str, self.current_user_name) 
             
@@ -333,23 +342,26 @@ class SpeedPointAgent(QWidget):
             card.clicked.connect(self.launch_game)
             self.grid.addWidget(card, i // 3, i % 3)
 
-    # 💡 KRİTİK DEĞİŞİM: Odak çalmayı %100 engelleyen başlama zekası
+    # 💡 KRİTİK ÇÖZÜM: Assetto Corsa'nın Focus (Odak) çökmesini engelleyen fırlatma sistemi
     def launch_game(self, path):
         if self.is_locked or not path or self.is_mini_mode: return 
         self.is_mini_mode = True
         self.current_game_exe = os.path.basename(path).strip('"')
         
-        # 1. Hemen Kalkanı (Loading Screen) açıyoruz.
-        self.full_ui.setCurrentIndex(2) 
+        # 1. Önce "Hologram" kalkanımızı ekrana basıp masaüstünü kapatıyoruz. (Odak çalmaz!)
+        self.shield_window.show()
+        QApplication.processEvents() # Grafik kartını zorla, kalkanı hemen çiz
         
-        # 2. Kapsülü ŞİMDİ (Oyun Açılmadan Önce) Göster!
-        # Böylece oyun açılırken araya girip focus çalmamış olacağız.
+        # 2. Mini Kapsülü ŞİMDİ gösteriyoruz ve sağ üste alıyoruz. (Odak çalmaz!)
         screen_geo = QApplication.primaryScreen().geometry()
         pill_w, pill_h = self.mini_window.width(), self.mini_window.height()
         self.mini_window.move(screen_geo.width() - pill_w - 20, 20)
         self.mini_window.show()
+
+        # 3. Ana menüyü SESSİZCE GİZLİYORUZ. Oyun daha çalışmadığı için focus kavgası yaşanmıyor.
+        self.hide() 
         
-        # 3. Oyunu Ateşle
+        # 4. Oyunu ateşle! (Artık Kiosk gizlendi, Assetto Corsa tek kral olarak sahnede)
         try:
             if sys.platform == "darwin": subprocess.Popen(["open", path])
             elif sys.platform == "win32": os.startfile(path)
@@ -358,13 +370,8 @@ class SpeedPointAgent(QWidget):
             self.switch_to_full()
             return
             
-        # 4. 10 saniye bekle ve sadece kalkanı SESİZCE GİZLE.
-        # .hide() metodu Windows'ta odak çalmaz! Oyun pürüzsüzce devam eder.
-        QTimer.singleShot(10000, self.finalize_game_launch)
-
-    def finalize_game_launch(self):
-        if not self.is_locked and self.is_mini_mode:
-            self.hide() # Yükleme ekranı aradan çekilir. Assetto Corsa tam gaz devam eder.
+        # 5. Assetto Corsa motorunu yormadan, 12 saniye sonra kalkanı (hologramı) sessizce kapat.
+        QTimer.singleShot(12000, self.shield_window.hide)
 
     def check_pin(self):
         if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN")
