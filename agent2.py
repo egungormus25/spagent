@@ -39,8 +39,20 @@ class NetworkWorker(QObject):
                     fields = r.json().get("fields", {})
                     is_locked = fields.get("isLocked", {}).get("booleanValue", True)
                     rem_time = int(fields.get("remainingTime", {}).get("integerValue", "0"))
-                    u_name = fields.get("userName", {}).get("stringValue", "Yarışçı")
+                    
                     u_id = fields.get("userId", {}).get("stringValue", "") 
+                    
+                    u_name = "YARIŞÇI"
+                    
+                    if u_id:
+                        try:
+                            user_url = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/users/{u_id}"
+                            ur = requests.get(user_url, timeout=3)
+                            if ur.status_code == 200:
+                                u_fields = ur.json().get("fields", {})
+                                u_name = u_fields.get("name", {}).get("stringValue", "YARIŞÇI")
+                        except Exception as e:
+                            print(f"Kullanıcı adı çekilemedi: {e}")
                     
                     self.status_updated.emit(is_locked, rem_time, u_name, u_id)
             except: pass
@@ -108,9 +120,10 @@ class MiniPillWindow(QWidget):
         self.setup_card(self.card_best, "👑", "--:--.---", "EN İYİ TUR (BEST LAP)", scale_factor, (1,1), "#00FF88")
 
     def setup_card(self, card, icon_text, value_text, label_text, scale_factor, grid_pos, value_color="white"):
+        # 💡 DÜZELTME: Alpha değerini 100'den 30'a çektik. Neredeyse tamamen şeffaf!
         card.setStyleSheet("""
             QFrame {
-                background: rgba(0, 0, 0, 100); 
+                background: rgba(0, 0, 0, 30); 
                 border-radius: 8px; 
                 border: none;
             }
@@ -136,14 +149,12 @@ class MiniPillWindow(QWidget):
         card_lay.addWidget(icon); card_lay.addLayout(v_lay)
         self.main_lay.addWidget(card, grid_pos[0], grid_pos[1])
         
-        # 💡 DÜZELTME: Hem üstteki ana değeri hem de alttaki gri yazıyı dışarıdan erişilebilir yaptık.
         card.value_label = value_label
         card.desc_label = desc_label 
 
     def update_time_and_user(self, t_str, user_name):
         self.card_rem.value_label.setText(t_str)
-        # 💡 DÜZELTME: Hata fırlatan findChild yerine direkt tanımladığımız desc_label'ı kullanıyoruz.
-        self.card_track.desc_label.setText(f"{user_name[:10]} // PİST & ARAÇ")
+        self.card_track.desc_label.setText(f"{user_name[:15]} // PİST & ARAÇ")
 
     def update_telemetry(self, track, car, curr, best, scale_factor):
         if track:
@@ -156,7 +167,7 @@ class MiniPillWindow(QWidget):
             self.card_curr.value_label.setText("--:--.---")
             self.card_best.value_label.setText("--:--.---")
 
-# --- 🏎️ DÜZELTİLMİŞ CANLI TELEMETRİ MOTORU ---
+# --- 🏎️ CANLI TELEMETRİ MOTORU ---
 class ACTelemetryWorker(QObject):
     telemetry_updated = Signal(str, str, str, str, str)
     def run(self):
@@ -195,7 +206,6 @@ class ACTelemetryWorker(QObject):
                 shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static", access=mmap.ACCESS_READ)
                 shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics", access=mmap.ACCESS_READ)
                 
-                # 💡 DÜZELTME: Salt okunur (ACCESS_READ) map'ler için "from_buffer_copy" kullanılmalı!
                 track_name = ACStatic.from_buffer_copy(shm_static).track
                 car_name = ACStatic.from_buffer_copy(shm_static).carModel
                 g_data = ACGraphics.from_buffer_copy(shm_graphics)
