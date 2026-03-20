@@ -73,7 +73,7 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
-# --- ⏱️ 💡 HAYALET (GHOST) HUD PENCERESİ ---
+# --- ⏱️ HAYALET (GHOST) HUD PENCERESİ ---
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
@@ -89,12 +89,11 @@ class MiniPillWindow(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating) 
         
         self.setFixedSize(int(1000 * scale_factor), int(300 * scale_factor))
-        # Ana zemin tamamen şeffaf
         self.setStyleSheet("background: transparent;")
         
         self.main_lay = QGridLayout(self)
         self.main_lay.setContentsMargins(15, 15, 15, 15)
-        self.main_lay.setSpacing(10) # Kartlar arası boşluğu biraz kıstık
+        self.main_lay.setSpacing(10)
         
         self.card_track = QFrame()
         self.setup_card(self.card_track, "📍", "PİST BEKLENİYOR", "PİST & ARAÇ", scale_factor, (0,0))
@@ -109,7 +108,6 @@ class MiniPillWindow(QWidget):
         self.setup_card(self.card_best, "👑", "--:--.---", "EN İYİ TUR (BEST LAP)", scale_factor, (1,1), "#00FF88")
 
     def setup_card(self, card, icon_text, value_text, label_text, scale_factor, grid_pos, value_color="white"):
-        # 💡 Şeffaf Cam Efekti: Sadece çok hafif siyah arka plan, çerçeve yok!
         card.setStyleSheet("""
             QFrame {
                 background: rgba(0, 0, 0, 100); 
@@ -123,7 +121,6 @@ class MiniPillWindow(QWidget):
         
         v_lay = QVBoxLayout(); v_lay.setSpacing(0)
         
-        # 💡 Gölgeli Metinler (Arka plan şeffaf olunca yazı okunabilsin diye text-shadow ekledik)
         value_label = QLabel(value_text)
         value_label.setStyleSheet(f"""
             color: {value_color}; 
@@ -138,11 +135,15 @@ class MiniPillWindow(QWidget):
         v_lay.addWidget(value_label); v_lay.addWidget(desc_label)
         card_lay.addWidget(icon); card_lay.addLayout(v_lay)
         self.main_lay.addWidget(card, grid_pos[0], grid_pos[1])
+        
+        # 💡 DÜZELTME: Hem üstteki ana değeri hem de alttaki gri yazıyı dışarıdan erişilebilir yaptık.
         card.value_label = value_label
+        card.desc_label = desc_label 
 
     def update_time_and_user(self, t_str, user_name):
         self.card_rem.value_label.setText(t_str)
-        self.card_track.findChild(QLabel, "", Qt.FindChildrenRecursively)[2].setText(f"{user_name[:10]} // PİST & ARAÇ")
+        # 💡 DÜZELTME: Hata fırlatan findChild yerine direkt tanımladığımız desc_label'ı kullanıyoruz.
+        self.card_track.desc_label.setText(f"{user_name[:10]} // PİST & ARAÇ")
 
     def update_telemetry(self, track, car, curr, best, scale_factor):
         if track:
@@ -155,14 +156,13 @@ class MiniPillWindow(QWidget):
             self.card_curr.value_label.setText("--:--.---")
             self.card_best.value_label.setText("--:--.---")
 
-# --- 🏎️ 💡 DÜZELTİLMİŞ CANLI TELEMETRİ MOTORU (KERNEL32 GERİ DÖNDÜ) ---
+# --- 🏎️ DÜZELTİLMİŞ CANLI TELEMETRİ MOTORU ---
 class ACTelemetryWorker(QObject):
     telemetry_updated = Signal(str, str, str, str, str)
     def run(self):
         if sys.platform != "win32": return
         import ctypes; import mmap
         
-        # 💡 İŞTE O UNUTTUKUM KRİTİK KORUMA:
         kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
         FILE_MAP_READ = 4
 
@@ -181,25 +181,24 @@ class ACTelemetryWorker(QObject):
         self.last_packet_id = -1
         
         while True:
-            # 💡 ÖNCE KONTROL ET: Oyun hafızayı açtı mı? Açmadıysa asla bağlanma!
             handle_static = kernel32.OpenFileMappingW(FILE_MAP_READ, False, "Local\\acpmf_static")
             if not handle_static:
                 self.telemetry_updated.emit("", "", "", "", "")
                 self.total_ms = 0
                 self.last_packet_id = -1
-                time.sleep(1) # Oyunun açılmasını bekle
+                time.sleep(1) 
                 continue
             
             kernel32.CloseHandle(handle_static)
 
             try:
-                # Oyun açıldı, artık sadece okuma izniyle bağlanabiliriz
                 shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static", access=mmap.ACCESS_READ)
                 shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics", access=mmap.ACCESS_READ)
                 
-                track_name = ACStatic.from_buffer(shm_static).track
-                car_name = ACStatic.from_buffer(shm_static).carModel
-                g_data = ACGraphics.from_buffer(shm_graphics)
+                # 💡 DÜZELTME: Salt okunur (ACCESS_READ) map'ler için "from_buffer_copy" kullanılmalı!
+                track_name = ACStatic.from_buffer_copy(shm_static).track
+                car_name = ACStatic.from_buffer_copy(shm_static).carModel
+                g_data = ACGraphics.from_buffer_copy(shm_graphics)
                 
                 if g_data.status == 2 and track_name:
                     if self.last_packet_id != -1 and g_data.packetId > self.last_packet_id:
@@ -358,11 +357,6 @@ class SpeedPointAgent(QWidget):
                 except Exception as e: print(f"Bulut canlı kayıt hatası: {e}")
             
             threading.Thread(target=_patch, daemon=True).start()
-            
-        self.session_track = ""
-        self.session_car = ""
-        self.session_best_time = ""
-        self.session_total_time = ""
 
     def setup_locked_view(self):
         self.locked_widget = QWidget(); lay = QGridLayout(self.locked_widget); lay.setContentsMargins(0, 0, 0, 0)
