@@ -15,6 +15,7 @@ PROJECT_ID = "speedpoint-928e1"
 MACHINE_ID = "PC_01" 
 FIRESTORE_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/machines/{MACHINE_ID}"
 GAMES_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/games"
+# 💡 YENİ: Liderlik Tablosu URL'si (Oturumun üzerine yazmak için kullanılacak)
 LEADERBOARD_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/leaderboard"
 
 LOGO_FILE = "splogo.png"
@@ -27,7 +28,7 @@ NETFLIX_BLACK = "#141414"
 
 # --- 📡 NETWORK MOTORU ---
 class NetworkWorker(QObject):
-    # 💡 Sinyale 4. Değişken Eklendi: userId (str)
+    # 💡 userId String olarak çekiliyor
     status_updated = Signal(bool, int, str, str)
     games_loaded = Signal(list)
 
@@ -41,8 +42,6 @@ class NetworkWorker(QObject):
                     is_locked = fields.get("isLocked", {}).get("booleanValue", True)
                     rem_time = int(fields.get("remainingTime", {}).get("integerValue", "0"))
                     u_name = fields.get("userName", {}).get("stringValue", "Yarışçı")
-                    
-                    # 💡 YENİ: Makine belgesinden userId'yi çekiyoruz
                     u_id = fields.get("userId", {}).get("stringValue", "") 
                     
                     self.status_updated.emit(is_locked, rem_time, u_name, u_id)
@@ -76,7 +75,7 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
-# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL ---
+# --- ⏱️ 💡 YENİ MİNİ HUD PENCERESİ (image_5.png Tasarımı) ---
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
@@ -91,43 +90,74 @@ class MiniPillWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating) 
         
-        self.setFixedSize(int(800 * scale_factor), int(120 * scale_factor))
-        self.setStyleSheet("background: rgba(15, 15, 15, 230); border-radius: 40px; border: 2px solid #E50914;")
+        # Tasarıma uygun boyutlar (4 kart sığsın diye genişlettik)
+        self.setFixedSize(int(1000 * scale_factor), int(300 * scale_factor))
+        self.setStyleSheet("background: rgba(10, 10, 10, 230); border-radius: 20px; border: 2px solid #333;")
         
-        main_lay = QVBoxLayout(self)
-        main_lay.setContentsMargins(30, 15, 30, 15)
+        self.main_lay = QGridLayout(self)
+        self.main_lay.setContentsMargins(20, 20, 20, 20)
+        self.main_lay.setSpacing(15)
         
-        top_lay = QHBoxLayout()
-        self.user_label = QLabel("YARIŞÇI")
-        self.user_label.setStyleSheet(f"color: white; font-size: {int(20 * scale_factor)}px; font-weight: bold;")
-        self.timer_label = QLabel("00:00")
-        self.timer_label.setStyleSheet(f"color: {NETFLIX_RED}; font-size: {int(32 * scale_factor)}px; font-weight: 900;")
-        top_lay.addWidget(self.user_label); top_lay.addStretch(); top_lay.addWidget(self.timer_label)
+        # --- 📍 PİST & ARAÇ KARTI ---
+        self.card_track = QFrame()
+        self.setup_card(self.card_track, "📍", "PİST BEKLENİYOR", "PİST & ARAÇ", scale_factor, (0,0))
         
-        self.telemetry_label = QLabel("OYUN BEKLENİYOR...")
-        self.telemetry_label.setAlignment(Qt.AlignCenter)
-        self.telemetry_label.setStyleSheet(f"color: #AAA; font-size: {int(18 * scale_factor)}px; font-weight: bold;")
+        # --- ⏱️ MEVCUT TUR KARTI ---
+        self.card_curr = QFrame()
+        self.setup_card(self.card_curr, "⏱️", "--:--.---", "MEVCUT TUR SÜRESİ", scale_factor, (0,1))
         
-        main_lay.addLayout(top_lay)
-        main_lay.addWidget(self.telemetry_label)
+        # --- ⏳ KALAN SÜRE KARTI ---
+        self.card_rem = QFrame()
+        self.setup_card(self.card_rem, "⏳", "00:00", "KALAN SÜRE", scale_factor, (1,0), NETFLIX_RED)
+        
+        # --- 👑 EN İYİ TUR KARTI ---
+        self.card_best = QFrame()
+        self.setup_card(self.card_best, "👑", "--:--.---", "EN İYİ TUR (BEST LAP)", scale_factor, (1,1), "#00FF88")
+
+    def setup_card(self, card, icon_text, value_text, label_text, scale_factor, grid_pos, value_color="white"):
+        card.setStyleSheet("background: #1a1a1a; border-radius: 10px; border: 1px solid #333;")
+        card_lay = QHBoxLayout(card); card_lay.setContentsMargins(15, 10, 15, 10)
+        
+        icon = QLabel(icon_text); icon.setStyleSheet(f"color: {NETFLIX_RED}; font-size: {int(40*scale_factor)}px; font-weight: bold;")
+        
+        v_lay = QVBoxLayout(); v_lay.setSpacing(2)
+        
+        # Değer etiketi (image_5.png'deki büyük metin)
+        value_label = QLabel(value_text)
+        value_label.setStyleSheet(f"color: {value_color}; font-size: {int(28*scale_factor)}px; font-weight: bold;")
+        
+        # Etiket (image_5.png'deki küçük gri metin)
+        desc_label = QLabel(label_text); desc_label.setStyleSheet(f"color: #AAA; font-size: {int(14*scale_factor)}px; font-weight: normal;")
+        
+        v_lay.addWidget(value_label); v_lay.addWidget(desc_label); card_lay.addWidget(icon); card_lay.addLayout(v_lay)
+        self.main_lay.addWidget(card, grid_pos[0], grid_pos[1])
+        
+        # Agent tarafından güncellenebilmesi için değer etiketini karta iliştiriyoruz
+        card.value_label = value_label
 
     def update_time_and_user(self, t_str, user_name):
-        self.timer_label.setText(t_str)
-        self.user_label.setText(f"🏎️ {user_name}")
+        # Kalan Süre kartını güncelliyoruz
+        self.card_rem.value_label.setText(t_str)
+        # Tasarımda kullanıcı adı kartı yok, ama belki başlığa veya bir karta sıkıştırabiliriz. 
+        # Şimdilik PİST kartının etiketinde gösterelim:
+        self.card_track.findChild(QLabel, "", Qt.FindChildrenRecursively)[2].setText(f"{user_name[:10]} // PİST & ARAÇ")
 
+    # 💡 Yeni Sinyale Göre Güncelleme: curr, best alıyoruz
     def update_telemetry(self, track, car, curr, best, scale_factor):
         if track:
-            c_time = curr if curr and curr != "0" else "--:--.---"
-            b_time = best if best and best != "0" else "--:--.---"
-            self.telemetry_label.setText(f"🚗 {car[:15]} | 📍 {track} | ⏱️ {c_time} | 👑 {b_time}")
-            self.telemetry_label.setStyleSheet(f"color: #00FF88; font-size: {int(16 * scale_factor)}px; font-weight: bold;")
+            track_and_car = f"{track[:10]} // {car[:15]}"
+            self.card_track.value_label.setText(track_and_car)
+            self.card_curr.value_label.setText(curr if curr and curr != "0" else "--:--.---")
+            self.card_best.value_label.setText(best if best and best != "0" else "--:--.---")
         else:
-            self.telemetry_label.setText("MENÜ VEYA LOBİ BEKLENİYOR...")
-            self.telemetry_label.setStyleSheet(f"color: #AAA; font-size: {int(18 * scale_factor)}px; font-weight: bold;")
+            self.card_track.value_label.setText("PİST BEKLENİYOR")
+            self.card_curr.value_label.setText("--:--.---")
+            self.card_best.value_label.setText("--:--.---")
 
-# --- 🏎️ ASSETTO CORSA TELEMETRİ MOTORU ---
+# --- 🏎️ 💡 YENİ CANLI TELEMETRİ MOTORU (Toplam Süre Hesaplamalı) ---
 class ACTelemetryWorker(QObject):
-    telemetry_updated = Signal(str, str, str, str)
+    # 💡 Yeni Sinyal: track, car, curr, best, total
+    telemetry_updated = Signal(str, str, str, str, str)
     def run(self):
         if sys.platform != "win32": return
         import ctypes; import mmap
@@ -143,23 +173,55 @@ class ACTelemetryWorker(QObject):
                         ("session", ctypes.c_int32), ("currentTime", ctypes.c_wchar * 15),
                         ("lastTime", ctypes.c_wchar * 15), ("bestTime", ctypes.c_wchar * 15)]
         
+        # Toplam Süre Sayacı
+        self.total_ms = 0
+        self.last_packet_id = -1
+        
         while True:
             try:
-                shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static")
-                shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics")
+                shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static", access=mmap.ACCESS_READ)
+                shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics", access=mmap.ACCESS_READ)
                 
                 track_name = ACStatic.from_buffer(shm_static).track
                 car_name = ACStatic.from_buffer(shm_static).carModel
                 g_data = ACGraphics.from_buffer(shm_graphics)
                 
                 if g_data.status == 2 and track_name:
-                    self.telemetry_updated.emit(track_name.upper(), car_name.upper(), g_data.currentTime, g_data.bestTime)
+                    # 💡 Toplam süre hesaplama mantığı
+                    if self.last_packet_id != -1 and g_data.packetId > self.last_packet_id:
+                        # Her 0.5 saniyede bir veri okuyoruz (time.sleep(0.5)).
+                        # Dolayısıyla her okumada 500ms ekliyoruz.
+                        self.total_ms += 500
+                    self.last_packet_id = g_data.packetId
+                    
+                    self.telemetry_updated.emit(track_name.upper(), car_name.upper(), g_data.currentTime, g_data.bestTime, self.ms_to_time_string(self.total_ms))
                 else: 
-                    self.telemetry_updated.emit("", "", "", "")
+                    self.telemetry_updated.emit("", "", "", "", "")
+                    # Oyun durduysa veya lobideyse sayacı sıfırla
+                    self.total_ms = 0
+                    self.last_packet_id = -1
+                
+                shm_static.close()
+                shm_graphics.close()
             except Exception: 
-                self.telemetry_updated.emit("", "", "", "")
+                self.telemetry_updated.emit("", "", "", "", "")
+                # Hafıza okunamıyorsa sayacı sıfırla
+                self.total_ms = 0
+                self.last_packet_id = -1
             
             time.sleep(0.5)
+            
+    # Milisaniyeyi String'e çeviren yardımcı metot (Örn: 3600000ms -> "1:00:00")
+    def ms_to_time_string(self, ms):
+        seconds = ms // 1000
+        hours = seconds // 3600
+        seconds %= 3600
+        minutes = seconds // 60
+        seconds %= 60
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{seconds:02d}"
+        else:
+            return f"{minutes:02d}:{seconds:02d}"
 
 # --- 🎮 MEGA OYUN KARTI ---
 class GameCard(QFrame):
@@ -231,12 +293,16 @@ class SpeedPointAgent(QWidget):
         self.last_synced_cloud_time = -1
         self.is_mini_mode = False
         self.current_user_name = "YARIŞÇI"
-        self.current_user_id = "" # 💡 YENİ: Başlangıçta boş ID
+        self.current_user_id = "" 
         self.current_game_exe = None
 
+        # 💡 CANLI VERİ VE OTURUM HAFIZASI
         self.session_track = ""
         self.session_car = ""
         self.session_best_time = ""
+        self.last_sent_best_time = "" # Buluta son yolladığımız süreyi aklımızda tutalım ki sürekli spam yapmasın
+        self.session_doc_id = ""      # Buluttaki belgenin ID'si
+        self.session_total_time = "" # 💡 Toplam süre
 
         self.worker = NetworkWorker()
         self.worker.status_updated.connect(self.sync_status)
@@ -244,41 +310,58 @@ class SpeedPointAgent(QWidget):
         threading.Thread(target=self.worker.run, daemon=True).start()
 
         self.ac_telemetry = ACTelemetryWorker()
+        # 💡 Yeni sinyal: track, car, curr, best, total
         self.ac_telemetry.telemetry_updated.connect(self.handle_telemetry)
         threading.Thread(target=self.ac_telemetry.run, daemon=True).start()
 
         self.ticker = QTimer(self); self.ticker.timeout.connect(self.local_tick); self.ticker.start(1000)
 
-    def handle_telemetry(self, track, car, curr, best):
+    # 💡 CANLI TELEMETRİ GÜNCELLEMESİ (Her veri okunduğunda tetiklenir)
+    def handle_telemetry(self, track, car, curr, best, total):
         if best and best != "0" and best != "--:--.---":
             self.session_track = track
             self.session_car = car
             self.session_best_time = best
+            self.session_total_time = total # 💡 Toplam süreyi kaydet
+            
+            # Eğer oyuncunun rekoru (bestTime) bir öncekine göre değiştiyse (yeni turda hızlandıysa)
+            if self.session_best_time != self.last_sent_best_time:
+                self.last_sent_best_time = self.session_best_time
+                self.save_session_record() # Beklemeden anında buluta çak!
+                
+        # UI'ı Güncelle: Artık tüm telemetri verisini gönderiyoruz
         self.mini_window.update_telemetry(track, car, curr, best, self.scale_factor)
 
+    # 💡 VERİTABANINA DİREKT PATCH (ÜZERİNE YAZMA) İŞLEMİ
     def save_session_record(self):
-        if self.session_best_time and self.session_best_time != "0" and self.session_best_time != "--:--.---":
-            print(f"🏆 REKOR KAYDEDİLİYOR: {self.current_user_name} ({self.current_user_id}) | {self.session_car} | {self.session_track} | {self.session_best_time}")
+        if self.session_best_time and self.session_best_time != "0" and self.session_doc_id:
+            print(f"⚡ CANLI GÜNCELLEME: {self.current_user_name} | YENİ REKOR: {self.session_best_time} | TOPLAM: {self.session_total_time}")
             
             payload = {
                 "fields": {
-                    "userId": {"stringValue": self.current_user_id}, # 💡 YENİ EKLENDİ!
+                    "userId": {"stringValue": self.current_user_id},
                     "userName": {"stringValue": self.current_user_name},
                     "carModel": {"stringValue": self.session_car},
                     "track": {"stringValue": self.session_track},
-                    "bestTime": {"stringValue": self.session_best_time}
+                    "bestTime": {"stringValue": self.session_best_time},
+                    "totalRaceTime": {"stringValue": self.session_total_time} # 💡 YENİ ALAN: Toplam Süre
                 }
             }
             
-            def _post():
-                try: requests.post(LEADERBOARD_URL, json=payload, timeout=5)
-                except Exception as e: print(f"Bulut kayıt hatası: {e}")
+            # Önceden POST kullanıyorduk (sürekli yeni satır açıyordu). 
+            # Artık o yarışçıya özel belirlediğimiz session_doc_id'nin ÜZERİNE (PATCH) yazıyoruz!
+            doc_url = f"{LEADERBOARD_URL}/{self.session_doc_id}"
             
-            threading.Thread(target=_post, daemon=True).start()
+            def _patch():
+                try: requests.patch(doc_url, json=payload, timeout=5)
+                except Exception as e: print(f"Bulut canlı kayıt hatası: {e}")
+            
+            threading.Thread(target=_patch, daemon=True).start()
             
         self.session_track = ""
         self.session_car = ""
         self.session_best_time = ""
+        self.session_total_time = ""
 
     def setup_locked_view(self):
         self.locked_widget = QWidget(); lay = QGridLayout(self.locked_widget); lay.setContentsMargins(0, 0, 0, 0)
@@ -346,10 +429,9 @@ class SpeedPointAgent(QWidget):
             except: pass
             self.current_game_exe = None
 
-    # 💡 SYNC GÜNCELLEMESİ: user_id eklendi
     def sync_status(self, locked_cloud, time_cloud, user_name, user_id):
         self.current_user_name = user_name.upper()
-        self.current_user_id = user_id # 💡 Yeni veri alındı
+        self.current_user_id = user_id 
         self.welcome_label.setText(f"HOŞ GELDİN, {self.current_user_name}")
         
         if self.is_locked == True and locked_cloud == False:
@@ -357,7 +439,7 @@ class SpeedPointAgent(QWidget):
             self.switch_to_full(); self.full_ui.setCurrentIndex(1); self.player.stop()
             
         elif self.is_locked == False and locked_cloud == True:
-            self.save_session_record()
+            # Oturum kapandığında artık rekor göndermemize gerek yok çünkü anlık yolluyoruz
             self.kill_current_game() 
             self.is_locked = True; self.remaining_seconds = 0; self.last_synced_cloud_time = -1
             self.switch_to_full(); self.full_ui.setCurrentIndex(0); self.player.play()
@@ -375,9 +457,8 @@ class SpeedPointAgent(QWidget):
             self.mini_window.update_time_and_user(t_str, self.current_user_name) 
             
             if self.remaining_seconds <= 0:
-                self.save_session_record()
                 self.kill_current_game()
-                self.sync_status(True, 0, "YARIŞÇI", "") # Süre bitince ID'yi de boşalt
+                self.sync_status(True, 0, "YARIŞÇI", "") 
 
     def render_games(self, games):
         while self.grid.count():
@@ -390,6 +471,12 @@ class SpeedPointAgent(QWidget):
     def launch_game(self, path):
         if self.is_locked or not path or self.is_mini_mode: return 
         self.is_mini_mode = True
+        
+        # 💡 YENİ OYUN BAŞLADI: Yepyeni bir oturum ID'si (Zaman Damgası ile) oluştur ve eski hafızayı sil
+        safe_user = self.current_user_id if self.current_user_id else "USER"
+        self.session_doc_id = f"sess_{int(time.time())}_{safe_user}"
+        self.last_sent_best_time = ""
+        self.session_best_time = ""
         
         clean_path = path.strip('"')
         self.current_game_exe = os.path.basename(clean_path)
@@ -425,7 +512,6 @@ class SpeedPointAgent(QWidget):
         if event.key() == Qt.Key_X and (event.modifiers() & Qt.ControlModifier or event.modifiers() & Qt.MetaModifier) and (event.modifiers() & Qt.ShiftModifier):
             QApplication.quit()
         if event.key() == Qt.Key_Escape and self.is_mini_mode:
-            self.save_session_record()
             self.kill_current_game() 
             self.switch_to_full()
         if event.key() == Qt.Key_M and (event.modifiers() & Qt.ControlModifier or event.modifiers() & Qt.MetaModifier) and (event.modifiers() & Qt.ShiftModifier):

@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpeedPoint - RaceRoom Style Leaderboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Teko:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --sp-red: #E50914; 
+            --row-bg: rgba(15, 15, 15, 0.95); 
+            --row-border: #2a2a2a;
+            --text-white: #ffffff;
+            --text-grey: #888888;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            color: var(--text-white);
+            font-family: 'Oswald', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .bg-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url('leaderboard_bg.jpg');
+            background-size: cover;
+            background-position: center;
+            z-index: -2;
+        }
+
+        .bg-dimmer {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.55);
+            z-index: -1;
+        }
+
+        .container {
+            width: 85%;
+            max-width: 1800px;
+            margin: 50px auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 40px;
+            border-bottom: 2px solid var(--sp-red);
+            padding-bottom: 15px;
+        }
+
+        .header h1 {
+            font-family: 'Teko', sans-serif;
+            font-size: 5rem;
+            line-height: 0.8;
+            margin: 0;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .header h1 span {
+            color: var(--sp-red);
+        }
+
+        .header p {
+            font-size: 1.5rem;
+            color: var(--text-grey);
+            margin: 5px 0 0 0;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+
+        .logo-area img {
+            height: 80px; 
+        }
+
+        .board {
+            width: 100%;
+            border-collapse: separate; 
+            border-spacing: 0 8px; 
+        }
+
+        .board thead th {
+            text-align: left;
+            font-size: 1.2rem;
+            color: var(--text-grey);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            padding: 0 20px 10px 20px;
+            font-weight: 600;
+        }
+
+        .board tbody tr {
+            background-color: var(--row-bg);
+            border-left: 6px solid var(--sp-red); 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+
+        .board tbody td {
+            padding: 15px 20px;
+            vertical-align: middle;
+            border-top: 1px solid var(--row-border);
+            border-bottom: 1px solid var(--row-border);
+        }
+
+        .board tbody td:last-child {
+            border-right: 1px solid var(--row-border);
+        }
+
+        .rank {
+            width: 60px;
+            font-family: 'Teko', sans-serif;
+            font-size: 3.5rem !important;
+            color: var(--text-white);
+            text-align: center;
+            line-height: 1;
+        }
+
+        .driver-name {
+            font-size: 2rem !important;
+            font-weight: 700 !important;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            width: 30%;
+        }
+
+        .details-cell {
+            font-size: 1.3rem !important;
+            color: var(--text-grey);
+            text-transform: uppercase;
+        }
+
+        .car-name {
+            color: #ccc;
+            font-weight: 600;
+            margin-right: 15px;
+        }
+
+        .time-cell {
+            font-family: 'Teko', sans-serif;
+            color: var(--text-white);
+            font-size: 3.5rem !important;
+            text-align: right;
+            line-height: 1;
+            letter-spacing: 2px;
+        }
+
+        .row-1 {
+            border-left: 6px solid #FFD700 !important;
+        }
+        .row-1 .time-cell {
+            color: #00FF88; 
+        }
+
+        tbody tr {
+            animation: blockIn 0.4s ease-out forwards;
+            opacity: 0;
+            transform: scale(0.98);
+        }
+
+        @keyframes blockIn {
+            to { opacity: 1; transform: scale(1); }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="bg-overlay"></div>
+    <div class="bg-dimmer"></div>
+
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1><span>LEADERBOARD</span></h1>
+                <p>LEADERBOARD</p>
+            </div>
+            <div class="logo-area">
+                <img src="splogo.png" alt="" onerror="this.style.display='none'">
+            </div>
+        </div>
+
+        <table class="board">
+            <thead>
+                <tr>
+                    <th style="text-align: center;">POS</th>
+                    <th>DRIVER</th>
+                    <th>VEHICLE / TRACK</th>
+                    <th style="text-align: right;">BEST LAP</th>
+                </tr>
+            </thead>
+            <tbody id="leaderboard-body">
+                <tr><td colspan="4" style="text-align: center; color: #444; padding: 50px;">WAITING FOR TELEMETRY...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+
+        // 💡 Eğer veritabanı okuma kuralların tamamen herkese açıksa (public), sadece projectId yeterlidir.
+        const firebaseConfig = {
+            projectId: "speedpoint-928e1"
+            // apiKey: "EĞER GEREKİRSE FIREBASE KONSOLUNDAN ALIP BURAYA YAPIŞTIRABİLİRSİN"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        function timeToMs(timeStr) {
+            if (!timeStr || timeStr === "0" || timeStr === "--:--.---") return Infinity;
+            try {
+                let parts = timeStr.split(':');
+                let mins = parseInt(parts[0]) || 0;
+                let secsMs = parts[1].split('.');
+                let secs = parseInt(secsMs[0]) || 0;
+                let ms = parseInt(secsMs[1]) || 0;
+                return (mins * 60000) + (secs * 1000) + ms;
+            } catch (e) { return Infinity; }
+        }
+
+        function renderTable(records) {
+            const tbody = document.getElementById("leaderboard-body");
+            tbody.innerHTML = "";
+
+            if (records.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: #444; padding: 50px;">NO RECORDS YET</td></tr>`;
+                return;
+            }
+
+            records.forEach((record, index) => {
+                const rank = index + 1;
+                let delay = index * 0.05;
+
+                const tr = document.createElement("tr");
+                tr.className = `row-${rank}`;
+                tr.style.animationDelay = `${delay}s`;
+
+                tr.innerHTML = `
+                    <td class="rank">${rank}</td>
+                    <td class="driver-name">${record.userName}</td>
+                    <td class="details-cell">
+                        <span class="car-name">${record.car}</span>
+                        <span>// ${record.track}</span>
+                    </td>
+                    <td class="time-cell">${record.bestTime}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 💡 THE MAGIC: Sürekli istek atmak (polling) YOK! 
+        // onSnapshot, sadece veritabanında bir şey değiştiğinde tetiklenir ve sıfır kota harcar.
+        const leaderboardRef = collection(db, "leaderboard");
+        
+        onSnapshot(leaderboardRef, (snapshot) => {
+            let records = [];
+            snapshot.forEach((doc) => {
+                let data = doc.data();
+                let userName = data.userName || "UNKNOWN";
+                let track = data.track || "TRACK";
+                let car = data.carModel || "VEHICLE";
+                let bestTime = data.bestTime || "--:--.---";
+                let timeMs = timeToMs(bestTime);
+                if (timeMs !== Infinity) { records.push({ userName, track, car, bestTime, timeMs }); }
+            });
+            
+            records.sort((a, b) => a.timeMs - b.timeMs);
+            renderTable(records.slice(0, 10)); 
+        }, (error) => {
+            console.error("Firebase Canlı Bağlantı Hatası:", error);
+            document.getElementById("leaderboard-body").innerHTML = `<tr><td colspan="4" style="text-align: center; color: #E50914; padding: 50px;">BAĞLANTI KOPTU VEYA YETKİ YOK!</td></tr>`;
+        });
+
+    </script>
+</body>
+</html>
