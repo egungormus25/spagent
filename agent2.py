@@ -22,6 +22,7 @@ BACKGROUND_IMAGE_FILE = "supercar_bg.jpg"
 PIN_CODE = "1923"
 
 NETFLIX_RED = "#E50914"
+NETFLIX_BLACK = "#141414"
 
 # --- 📡 NETWORK MOTORU ---
 class NetworkWorker(QObject):
@@ -69,7 +70,7 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
-# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL (NÜKLEER BYPASS MODU) ---
+# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL ---
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
@@ -118,16 +119,13 @@ class MiniPillWindow(QWidget):
             self.telemetry_label.setText("MENÜ VEYA LOBİ BEKLENİYOR...")
             self.telemetry_label.setStyleSheet(f"color: #AAA; font-size: {int(18 * scale_factor)}px; font-weight: bold;")
 
-# --- 🏎️ ASSETTO CORSA TELEMETRİ MOTORU (SİHİRLİ DÜZELTME - SALT OKUNUR) ---
+# --- 🏎️ ASSETTO CORSA TELEMETRİ MOTORU (SAF & SORUNSUZ VERSİYON) ---
 class ACTelemetryWorker(QObject):
     telemetry_updated = Signal(str, str, str)
     def run(self):
         if sys.platform != "win32": return
         import ctypes; import mmap
         
-        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-        FILE_MAP_READ = 4
-
         class ACStatic(ctypes.Structure):
             _pack_ = 4
             _fields_ = [("smVersion", ctypes.c_wchar * 15), ("acVersion", ctypes.c_wchar * 15),
@@ -140,19 +138,10 @@ class ACTelemetryWorker(QObject):
                         ("lastTime", ctypes.c_wchar * 15), ("bestTime", ctypes.c_wchar * 15)]
         
         while True:
-            # Assetto Corsa'nın hafıza oluşturmasını bekle. Biz yaratmayız!
-            handle_static = kernel32.OpenFileMappingW(FILE_MAP_READ, False, "Local\\acpmf_static")
-            if not handle_static:
-                self.telemetry_updated.emit("", "", "")
-                time.sleep(1)
-                continue
-            
-            kernel32.CloseHandle(handle_static)
-
             try:
-                # Sadece okuma (Read-Only) erişimi ile bağlan
-                shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static", access=mmap.ACCESS_READ)
-                shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics", access=mmap.ACCESS_READ)
+                # 💡 Saf ve en başta çalışan direkt bağlantı kodumuz!
+                shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static")
+                shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics")
                 
                 track_name = ACStatic.from_buffer(shm_static).track
                 g_data = ACGraphics.from_buffer(shm_graphics)
@@ -161,9 +150,6 @@ class ACTelemetryWorker(QObject):
                     self.telemetry_updated.emit(track_name.upper(), g_data.currentTime, g_data.bestTime)
                 else: 
                     self.telemetry_updated.emit("", "", "")
-                
-                shm_static.close()
-                shm_graphics.close()
             except Exception: 
                 self.telemetry_updated.emit("", "", "")
             
@@ -221,8 +207,9 @@ class SpeedPointAgent(QWidget):
         self.main_stacked.setStackingMode(QStackedLayout.StackAll)
 
         self.full_ui = QStackedWidget()
-        self.setup_locked_view()     
-        self.setup_active_view()     
+        self.setup_locked_view()     # Index 0
+        self.setup_active_view()     # Index 1
+        self.setup_loading_view()    # Index 2 💡 (SİYAH KALKAN GERİ DÖNDÜ)
         self.main_stacked.addWidget(self.full_ui)
 
         self.setup_admin_panel()
@@ -282,6 +269,15 @@ class SpeedPointAgent(QWidget):
         self.grid_container.addLayout(self.grid); self.scroll.setWidget(self.scroll_content); ui_lay.addWidget(self.scroll)
         lay.addWidget(self.bg_label, 0, 0); lay.addWidget(self.scrim_overlay, 0, 0); lay.addWidget(ui_frame, 0, 0)
         self.full_ui.addWidget(self.active_widget)
+
+    # 💡 KALKAN EKRANI
+    def setup_loading_view(self):
+        self.loading_widget = QWidget(); self.loading_widget.setStyleSheet(f"background-color: {NETFLIX_BLACK};"); lay = QVBoxLayout(self.loading_widget)
+        logo = QLabel(); l_path = os.path.join(os.path.dirname(__file__), LOGO_FILE)
+        if os.path.exists(l_path): logo.setPixmap(QPixmap(l_path).scaledToHeight(int(200*self.scale_factor), Qt.SmoothTransformation))
+        text = QLabel("OYUN BAŞLATILIYOR...\nLÜTFEN BEKLEYİN"); text.setAlignment(Qt.AlignCenter); text.setStyleSheet(f"color: white; font-size: {int(50*self.scale_factor)}px; font-weight: 900;")
+        lay.addStretch(); lay.addWidget(logo, alignment=Qt.AlignCenter); lay.addSpacing(50); lay.addWidget(text, alignment=Qt.AlignCenter); lay.addStretch()
+        self.full_ui.addWidget(self.loading_widget)
 
     def setup_admin_panel(self):
         self.admin_overlay = QFrame(self); self.admin_overlay.setStyleSheet("background: rgba(0,0,0,230);"); self.admin_overlay.setVisible(False)
@@ -344,7 +340,7 @@ class SpeedPointAgent(QWidget):
             card.clicked.connect(self.launch_game)
             self.grid.addWidget(card, i // 3, i % 3)
 
-    # 💡 CWD ve ONEDRIVE ÇÖZÜMÜ
+    # 💡 YENİ FIRLATMA DİZİLİMİ
     def launch_game(self, path):
         if self.is_locked or not path or self.is_mini_mode: return 
         self.is_mini_mode = True
@@ -352,27 +348,36 @@ class SpeedPointAgent(QWidget):
         clean_path = path.strip('"')
         self.current_game_exe = os.path.basename(clean_path)
         
-        self.showMinimized() 
+        # 1. Hemen Kalkan Ekranını (Siyah Ekranı) Aç
+        self.full_ui.setCurrentIndex(2)
         
+        # 2. Mini Kapsülü Göster
         screen_geo = QApplication.primaryScreen().geometry()
         pill_w, pill_h = self.mini_window.width(), self.mini_window.height()
         self.mini_window.move(screen_geo.width() - pill_w - 20, 20)
         self.mini_window.show()
 
         try:
-            # Oyunun kurulu olduğu klasörü tespit edip "Current Working Directory" (CWD) olarak atıyoruz.
+            # 3. Oyunu OneDrive hatalarından koruyan CWD (Klasör Yolu) ile ateşle!
             game_dir = os.path.dirname(clean_path)
             
             if sys.platform == "darwin": 
                 subprocess.Popen(["open", clean_path])
             elif sys.platform == "win32": 
-                # Oyunu kendi evinde, kendi dosyalarını görerek başlatmasını zorla!
                 subprocess.Popen(f'"{clean_path}"', shell=True, cwd=game_dir)
             else: 
                 subprocess.Popen([clean_path], cwd=game_dir)
         except Exception as e:
             self.switch_to_full()
             print(f"❌ Oyun başlatılamadı: {e}")
+            return
+
+        # 4. Tam 12 saniye bekle, oyun tam ekran olduğunda bizim Siyah Kalkan'ı yeraltına indir.
+        QTimer.singleShot(12000, self.hide_shield)
+
+    def hide_shield(self):
+        if self.is_mini_mode and not self.is_locked:
+            self.hide() # Kiosk tamamen kaybolur, sahnede sadece Assetto Corsa kalır.
 
     def check_pin(self):
         if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN")
