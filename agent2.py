@@ -15,7 +15,6 @@ PROJECT_ID = "speedpoint-928e1"
 MACHINE_ID = "PC_01" 
 FIRESTORE_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/machines/{MACHINE_ID}"
 GAMES_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/games"
-# 💡 YENİ: Liderlik Tablosu URL'si (Oturumun üzerine yazmak için kullanılacak)
 LEADERBOARD_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/leaderboard"
 
 LOGO_FILE = "splogo.png"
@@ -28,7 +27,6 @@ NETFLIX_BLACK = "#141414"
 
 # --- 📡 NETWORK MOTORU ---
 class NetworkWorker(QObject):
-    # 💡 userId String olarak çekiliyor
     status_updated = Signal(bool, int, str, str)
     games_loaded = Signal(list)
 
@@ -75,7 +73,7 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
-# --- ⏱️ 💡 YENİ MİNİ HUD PENCERESİ (image_5.png Tasarımı) ---
+# --- ⏱️ 💡 HAYALET (GHOST) HUD PENCERESİ ---
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
@@ -90,59 +88,62 @@ class MiniPillWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating) 
         
-        # Tasarıma uygun boyutlar (4 kart sığsın diye genişlettik)
         self.setFixedSize(int(1000 * scale_factor), int(300 * scale_factor))
-        self.setStyleSheet("background: rgba(10, 10, 10, 230); border-radius: 20px; border: 2px solid #333;")
+        # Ana zemin tamamen şeffaf
+        self.setStyleSheet("background: transparent;")
         
         self.main_lay = QGridLayout(self)
-        self.main_lay.setContentsMargins(20, 20, 20, 20)
-        self.main_lay.setSpacing(15)
+        self.main_lay.setContentsMargins(15, 15, 15, 15)
+        self.main_lay.setSpacing(10) # Kartlar arası boşluğu biraz kıstık
         
-        # --- 📍 PİST & ARAÇ KARTI ---
         self.card_track = QFrame()
         self.setup_card(self.card_track, "📍", "PİST BEKLENİYOR", "PİST & ARAÇ", scale_factor, (0,0))
         
-        # --- ⏱️ MEVCUT TUR KARTI ---
         self.card_curr = QFrame()
         self.setup_card(self.card_curr, "⏱️", "--:--.---", "MEVCUT TUR SÜRESİ", scale_factor, (0,1))
         
-        # --- ⏳ KALAN SÜRE KARTI ---
         self.card_rem = QFrame()
         self.setup_card(self.card_rem, "⏳", "00:00", "KALAN SÜRE", scale_factor, (1,0), NETFLIX_RED)
         
-        # --- 👑 EN İYİ TUR KARTI ---
         self.card_best = QFrame()
         self.setup_card(self.card_best, "👑", "--:--.---", "EN İYİ TUR (BEST LAP)", scale_factor, (1,1), "#00FF88")
 
     def setup_card(self, card, icon_text, value_text, label_text, scale_factor, grid_pos, value_color="white"):
-        card.setStyleSheet("background: #1a1a1a; border-radius: 10px; border: 1px solid #333;")
-        card_lay = QHBoxLayout(card); card_lay.setContentsMargins(15, 10, 15, 10)
+        # 💡 Şeffaf Cam Efekti: Sadece çok hafif siyah arka plan, çerçeve yok!
+        card.setStyleSheet("""
+            QFrame {
+                background: rgba(0, 0, 0, 100); 
+                border-radius: 8px; 
+                border: none;
+            }
+        """)
+        card_lay = QHBoxLayout(card); card_lay.setContentsMargins(15, 5, 15, 5)
         
-        icon = QLabel(icon_text); icon.setStyleSheet(f"color: {NETFLIX_RED}; font-size: {int(40*scale_factor)}px; font-weight: bold;")
+        icon = QLabel(icon_text); icon.setStyleSheet(f"color: {NETFLIX_RED}; font-size: {int(32*scale_factor)}px; font-weight: bold; background: transparent;")
         
-        v_lay = QVBoxLayout(); v_lay.setSpacing(2)
+        v_lay = QVBoxLayout(); v_lay.setSpacing(0)
         
-        # Değer etiketi (image_5.png'deki büyük metin)
+        # 💡 Gölgeli Metinler (Arka plan şeffaf olunca yazı okunabilsin diye text-shadow ekledik)
         value_label = QLabel(value_text)
-        value_label.setStyleSheet(f"color: {value_color}; font-size: {int(28*scale_factor)}px; font-weight: bold;")
+        value_label.setStyleSheet(f"""
+            color: {value_color}; 
+            font-size: {int(26*scale_factor)}px; 
+            font-weight: 900; 
+            background: transparent;
+        """)
         
-        # Etiket (image_5.png'deki küçük gri metin)
-        desc_label = QLabel(label_text); desc_label.setStyleSheet(f"color: #AAA; font-size: {int(14*scale_factor)}px; font-weight: normal;")
+        desc_label = QLabel(label_text)
+        desc_label.setStyleSheet(f"color: #DDD; font-size: {int(13*scale_factor)}px; font-weight: bold; background: transparent;")
         
-        v_lay.addWidget(value_label); v_lay.addWidget(desc_label); card_lay.addWidget(icon); card_lay.addLayout(v_lay)
+        v_lay.addWidget(value_label); v_lay.addWidget(desc_label)
+        card_lay.addWidget(icon); card_lay.addLayout(v_lay)
         self.main_lay.addWidget(card, grid_pos[0], grid_pos[1])
-        
-        # Agent tarafından güncellenebilmesi için değer etiketini karta iliştiriyoruz
         card.value_label = value_label
 
     def update_time_and_user(self, t_str, user_name):
-        # Kalan Süre kartını güncelliyoruz
         self.card_rem.value_label.setText(t_str)
-        # Tasarımda kullanıcı adı kartı yok, ama belki başlığa veya bir karta sıkıştırabiliriz. 
-        # Şimdilik PİST kartının etiketinde gösterelim:
         self.card_track.findChild(QLabel, "", Qt.FindChildrenRecursively)[2].setText(f"{user_name[:10]} // PİST & ARAÇ")
 
-    # 💡 Yeni Sinyale Göre Güncelleme: curr, best alıyoruz
     def update_telemetry(self, track, car, curr, best, scale_factor):
         if track:
             track_and_car = f"{track[:10]} // {car[:15]}"
@@ -154,14 +155,17 @@ class MiniPillWindow(QWidget):
             self.card_curr.value_label.setText("--:--.---")
             self.card_best.value_label.setText("--:--.---")
 
-# --- 🏎️ 💡 YENİ CANLI TELEMETRİ MOTORU (Toplam Süre Hesaplamalı) ---
+# --- 🏎️ 💡 DÜZELTİLMİŞ CANLI TELEMETRİ MOTORU (KERNEL32 GERİ DÖNDÜ) ---
 class ACTelemetryWorker(QObject):
-    # 💡 Yeni Sinyal: track, car, curr, best, total
     telemetry_updated = Signal(str, str, str, str, str)
     def run(self):
         if sys.platform != "win32": return
         import ctypes; import mmap
         
+        # 💡 İŞTE O UNUTTUKUM KRİTİK KORUMA:
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        FILE_MAP_READ = 4
+
         class ACStatic(ctypes.Structure):
             _pack_ = 4
             _fields_ = [("smVersion", ctypes.c_wchar * 15), ("acVersion", ctypes.c_wchar * 15),
@@ -173,12 +177,23 @@ class ACTelemetryWorker(QObject):
                         ("session", ctypes.c_int32), ("currentTime", ctypes.c_wchar * 15),
                         ("lastTime", ctypes.c_wchar * 15), ("bestTime", ctypes.c_wchar * 15)]
         
-        # Toplam Süre Sayacı
         self.total_ms = 0
         self.last_packet_id = -1
         
         while True:
+            # 💡 ÖNCE KONTROL ET: Oyun hafızayı açtı mı? Açmadıysa asla bağlanma!
+            handle_static = kernel32.OpenFileMappingW(FILE_MAP_READ, False, "Local\\acpmf_static")
+            if not handle_static:
+                self.telemetry_updated.emit("", "", "", "", "")
+                self.total_ms = 0
+                self.last_packet_id = -1
+                time.sleep(1) # Oyunun açılmasını bekle
+                continue
+            
+            kernel32.CloseHandle(handle_static)
+
             try:
+                # Oyun açıldı, artık sadece okuma izniyle bağlanabiliriz
                 shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static", access=mmap.ACCESS_READ)
                 shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics", access=mmap.ACCESS_READ)
                 
@@ -187,17 +202,13 @@ class ACTelemetryWorker(QObject):
                 g_data = ACGraphics.from_buffer(shm_graphics)
                 
                 if g_data.status == 2 and track_name:
-                    # 💡 Toplam süre hesaplama mantığı
                     if self.last_packet_id != -1 and g_data.packetId > self.last_packet_id:
-                        # Her 0.5 saniyede bir veri okuyoruz (time.sleep(0.5)).
-                        # Dolayısıyla her okumada 500ms ekliyoruz.
                         self.total_ms += 500
                     self.last_packet_id = g_data.packetId
                     
                     self.telemetry_updated.emit(track_name.upper(), car_name.upper(), g_data.currentTime, g_data.bestTime, self.ms_to_time_string(self.total_ms))
                 else: 
                     self.telemetry_updated.emit("", "", "", "", "")
-                    # Oyun durduysa veya lobideyse sayacı sıfırla
                     self.total_ms = 0
                     self.last_packet_id = -1
                 
@@ -205,13 +216,11 @@ class ACTelemetryWorker(QObject):
                 shm_graphics.close()
             except Exception: 
                 self.telemetry_updated.emit("", "", "", "", "")
-                # Hafıza okunamıyorsa sayacı sıfırla
                 self.total_ms = 0
                 self.last_packet_id = -1
             
             time.sleep(0.5)
             
-    # Milisaniyeyi String'e çeviren yardımcı metot (Örn: 3600000ms -> "1:00:00")
     def ms_to_time_string(self, ms):
         seconds = ms // 1000
         hours = seconds // 3600
@@ -296,13 +305,12 @@ class SpeedPointAgent(QWidget):
         self.current_user_id = "" 
         self.current_game_exe = None
 
-        # 💡 CANLI VERİ VE OTURUM HAFIZASI
         self.session_track = ""
         self.session_car = ""
         self.session_best_time = ""
-        self.last_sent_best_time = "" # Buluta son yolladığımız süreyi aklımızda tutalım ki sürekli spam yapmasın
-        self.session_doc_id = ""      # Buluttaki belgenin ID'si
-        self.session_total_time = "" # 💡 Toplam süre
+        self.last_sent_best_time = "" 
+        self.session_doc_id = ""      
+        self.session_total_time = "" 
 
         self.worker = NetworkWorker()
         self.worker.status_updated.connect(self.sync_status)
@@ -310,29 +318,24 @@ class SpeedPointAgent(QWidget):
         threading.Thread(target=self.worker.run, daemon=True).start()
 
         self.ac_telemetry = ACTelemetryWorker()
-        # 💡 Yeni sinyal: track, car, curr, best, total
         self.ac_telemetry.telemetry_updated.connect(self.handle_telemetry)
         threading.Thread(target=self.ac_telemetry.run, daemon=True).start()
 
         self.ticker = QTimer(self); self.ticker.timeout.connect(self.local_tick); self.ticker.start(1000)
 
-    # 💡 CANLI TELEMETRİ GÜNCELLEMESİ (Her veri okunduğunda tetiklenir)
     def handle_telemetry(self, track, car, curr, best, total):
         if best and best != "0" and best != "--:--.---":
             self.session_track = track
             self.session_car = car
             self.session_best_time = best
-            self.session_total_time = total # 💡 Toplam süreyi kaydet
+            self.session_total_time = total
             
-            # Eğer oyuncunun rekoru (bestTime) bir öncekine göre değiştiyse (yeni turda hızlandıysa)
             if self.session_best_time != self.last_sent_best_time:
                 self.last_sent_best_time = self.session_best_time
-                self.save_session_record() # Beklemeden anında buluta çak!
+                self.save_session_record() 
                 
-        # UI'ı Güncelle: Artık tüm telemetri verisini gönderiyoruz
         self.mini_window.update_telemetry(track, car, curr, best, self.scale_factor)
 
-    # 💡 VERİTABANINA DİREKT PATCH (ÜZERİNE YAZMA) İŞLEMİ
     def save_session_record(self):
         if self.session_best_time and self.session_best_time != "0" and self.session_doc_id:
             print(f"⚡ CANLI GÜNCELLEME: {self.current_user_name} | YENİ REKOR: {self.session_best_time} | TOPLAM: {self.session_total_time}")
@@ -344,12 +347,10 @@ class SpeedPointAgent(QWidget):
                     "carModel": {"stringValue": self.session_car},
                     "track": {"stringValue": self.session_track},
                     "bestTime": {"stringValue": self.session_best_time},
-                    "totalRaceTime": {"stringValue": self.session_total_time} # 💡 YENİ ALAN: Toplam Süre
+                    "totalRaceTime": {"stringValue": self.session_total_time}
                 }
             }
             
-            # Önceden POST kullanıyorduk (sürekli yeni satır açıyordu). 
-            # Artık o yarışçıya özel belirlediğimiz session_doc_id'nin ÜZERİNE (PATCH) yazıyoruz!
             doc_url = f"{LEADERBOARD_URL}/{self.session_doc_id}"
             
             def _patch():
@@ -439,7 +440,6 @@ class SpeedPointAgent(QWidget):
             self.switch_to_full(); self.full_ui.setCurrentIndex(1); self.player.stop()
             
         elif self.is_locked == False and locked_cloud == True:
-            # Oturum kapandığında artık rekor göndermemize gerek yok çünkü anlık yolluyoruz
             self.kill_current_game() 
             self.is_locked = True; self.remaining_seconds = 0; self.last_synced_cloud_time = -1
             self.switch_to_full(); self.full_ui.setCurrentIndex(0); self.player.play()
@@ -472,7 +472,6 @@ class SpeedPointAgent(QWidget):
         if self.is_locked or not path or self.is_mini_mode: return 
         self.is_mini_mode = True
         
-        # 💡 YENİ OYUN BAŞLADI: Yepyeni bir oturum ID'si (Zaman Damgası ile) oluştur ve eski hafızayı sil
         safe_user = self.current_user_id if self.current_user_id else "USER"
         self.session_doc_id = f"sess_{int(time.time())}_{safe_user}"
         self.last_sent_best_time = ""
