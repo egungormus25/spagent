@@ -24,6 +24,62 @@ PIN_CODE = "1923"
 NETFLIX_RED = "#E50914"
 NETFLIX_BLACK = "#141414"
 
+# --- 🏎️ ASSETTO CORSA TELEMETRİ MOTORU ---
+class ACTelemetryWorker(QObject):
+    # 💡 Yeni Sinyal: Pist, Anlık Tur, En İyi Tur
+    telemetry_updated = Signal(str, str, str)
+
+    def run(self):
+        if sys.platform != "win32":
+            return
+
+        import ctypes
+        import mmap
+
+        class ACStatic(ctypes.Structure):
+            _pack_ = 4
+            _fields_ = [
+                ("smVersion", ctypes.c_wchar * 15),
+                ("acVersion", ctypes.c_wchar * 15),
+                ("numberOfSessions", ctypes.c_int32),
+                ("numCars", ctypes.c_int32),
+                ("carModel", ctypes.c_wchar * 33),
+                ("track", ctypes.c_wchar * 33),
+            ]
+
+        class ACGraphics(ctypes.Structure):
+            _pack_ = 4
+            _fields_ = [
+                ("packetId", ctypes.c_int32),
+                ("status", ctypes.c_int32),
+                ("session", ctypes.c_int32),
+                ("currentTime", ctypes.c_wchar * 15),
+                ("lastTime", ctypes.c_wchar * 15),
+                ("bestTime", ctypes.c_wchar * 15),
+            ]
+
+        while True:
+            try:
+                shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static")
+                shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics")
+                
+                static_data = ACStatic.from_buffer(shm_static)
+                graphics_data = ACGraphics.from_buffer(shm_graphics)
+                
+                track_name = static_data.track
+                current_time = graphics_data.currentTime
+                best_time = graphics_data.bestTime
+                status = graphics_data.status
+
+                if status == 2 and track_name: # 2 = LIVE (Araç pistte)
+                    self.telemetry_updated.emit(track_name.upper(), current_time, best_time)
+                else:
+                    self.telemetry_updated.emit("", "", "")
+            except Exception:
+                self.telemetry_updated.emit("", "", "")
+            
+            time.sleep(0.5) # Telemetri arayüzünü saniyede 2 kez güncelle
+
 # --- 📡 NETWORK MOTORU ---
 class NetworkWorker(QObject):
     status_updated = Signal(bool, int, str)
@@ -70,26 +126,50 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
-# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL ---
+# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL (Gelişmiş Telemetri Ekranı) ---
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
-        self.setFixedSize(int(200 * scale_factor), int(70 * scale_factor))
-        self.setStyleSheet("background: rgba(20, 20, 20, 230); border-radius: 35px; border: 2px solid #E50914;")
+        # 💡 Kapsülü 2 satır veri alacak şekilde büyüttük
+        self.setFixedSize(int(800 * scale_factor), int(120 * scale_factor))
+        self.setStyleSheet("background: rgba(15, 15, 15, 230); border-radius: 40px; border: 2px solid #E50914;")
         
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
+        main_lay = QVBoxLayout(self)
+        main_lay.setContentsMargins(30, 15, 30, 15)
         
+        # Üst Satır: İsim ve Kalan Süre
+        top_lay = QHBoxLayout()
+        self.user_label = QLabel("YARIŞÇI")
+        self.user_label.setStyleSheet(f"color: white; font-size: {int(20 * scale_factor)}px; font-weight: bold;")
         self.timer_label = QLabel("00:00")
-        self.timer_label.setAlignment(Qt.AlignCenter)
-        self.timer_label.setStyleSheet(f"color: white; font-size: {int(30 * scale_factor)}px; font-weight: 900;")
-        lay.addWidget(self.timer_label)
+        self.timer_label.setStyleSheet(f"color: {NETFLIX_RED}; font-size: {int(32 * scale_factor)}px; font-weight: 900;")
+        top_lay.addWidget(self.user_label); top_lay.addStretch(); top_lay.addWidget(self.timer_label)
+        
+        # Alt Satır: Telemetri
+        self.telemetry_label = QLabel("OYUN BAŞLATILIYOR VEYA LOBİ BEKLENİYOR...")
+        self.telemetry_label.setAlignment(Qt.AlignCenter)
+        self.telemetry_label.setStyleSheet(f"color: #AAA; font-size: {int(18 * scale_factor)}px; font-weight: bold;")
+        
+        main_lay.addLayout(top_lay)
+        main_lay.addWidget(self.telemetry_label)
 
-    def update_time(self, t_str):
+    def update_time_and_user(self, t_str, user_name):
         self.timer_label.setText(t_str)
+        self.user_label.setText(f"🏎️ {user_name}")
+
+    def update_telemetry(self, track, curr, best, scale_factor):
+        if track:
+            # Temiz zaman formatı (0:00.000 gibi saçma süreleri temizler)
+            c_time = curr if curr and curr != "0" else "--:--.---"
+            b_time = best if best and best != "0" else "--:--.---"
+            self.telemetry_label.setText(f"📍 {track}  |  ⏱️ TUR: {c_time}  |  👑 BEST: {b_time}")
+            self.telemetry_label.setStyleSheet(f"color: #00FF88; font-size: {int(20 * scale_factor)}px; font-weight: bold;")
+        else:
+            self.telemetry_label.setText("MENÜ VEYA LOBİ BEKLENİYOR...")
+            self.telemetry_label.setStyleSheet(f"color: #AAA; font-size: {int(18 * scale_factor)}px; font-weight: bold;")
 
 # --- 🎮 MEGA OYUN KARTI ---
 class GameCard(QFrame):
@@ -145,7 +225,7 @@ class SpeedPointAgent(QWidget):
         self.full_ui = QStackedWidget()
         self.setup_locked_view()     # Index 0
         self.setup_active_view()     # Index 1
-        self.setup_loading_view()    # Index 2 💡 (YENİ: Yükleniyor Perdesi)
+        self.setup_loading_view()    # Index 2
         self.main_stacked.addWidget(self.full_ui)
 
         self.setup_admin_panel()
@@ -160,13 +240,17 @@ class SpeedPointAgent(QWidget):
         self.is_locked = True
         self.last_synced_cloud_time = -1
         self.is_mini_mode = False
-        
+        self.current_user_name = "YARIŞÇI"
         self.current_game_exe = None
 
         self.worker = NetworkWorker()
         self.worker.status_updated.connect(self.sync_status)
         self.worker.games_loaded.connect(self.render_games)
         threading.Thread(target=self.worker.run, daemon=True).start()
+
+        self.ac_telemetry = ACTelemetryWorker()
+        self.ac_telemetry.telemetry_updated.connect(lambda t, c, b: self.mini_window.update_telemetry(t, c, b, self.scale_factor))
+        threading.Thread(target=self.ac_telemetry.run, daemon=True).start()
 
         self.ticker = QTimer(self); self.ticker.timeout.connect(self.local_tick); self.ticker.start(1000)
 
@@ -212,27 +296,18 @@ class SpeedPointAgent(QWidget):
         lay.addWidget(self.bg_label, 0, 0); lay.addWidget(self.scrim_overlay, 0, 0); lay.addWidget(ui_frame, 0, 0)
         self.full_ui.addWidget(self.active_widget)
 
-    # 💡 YENİ EKRAN: Yükleniyor Perdesi (Masaüstünü kapatan kalkan)
     def setup_loading_view(self):
         self.loading_widget = QWidget()
         self.loading_widget.setStyleSheet(f"background-color: {NETFLIX_BLACK};")
         lay = QVBoxLayout(self.loading_widget)
-        
         logo = QLabel()
         l_path = os.path.join(os.path.dirname(__file__), LOGO_FILE)
         if os.path.exists(l_path): 
             logo.setPixmap(QPixmap(l_path).scaledToHeight(int(200*self.scale_factor), Qt.SmoothTransformation))
-            
         text = QLabel("OYUN BAŞLATILIYOR...\nLÜTFEN BEKLEYİN")
         text.setAlignment(Qt.AlignCenter)
         text.setStyleSheet(f"color: white; font-size: {int(50*self.scale_factor)}px; font-weight: 900;")
-        
-        lay.addStretch()
-        lay.addWidget(logo, alignment=Qt.AlignCenter)
-        lay.addSpacing(50)
-        lay.addWidget(text, alignment=Qt.AlignCenter)
-        lay.addStretch()
-        
+        lay.addStretch(); lay.addWidget(logo, alignment=Qt.AlignCenter); lay.addSpacing(50); lay.addWidget(text, alignment=Qt.AlignCenter); lay.addStretch()
         self.full_ui.addWidget(self.loading_widget)
 
     def setup_admin_panel(self):
@@ -250,32 +325,28 @@ class SpeedPointAgent(QWidget):
         self.is_mini_mode = False
         self.mini_window.hide()
         self.showFullScreen()
-        # Masa açıksa oyun galerisine, kapalıysa kilit ekranına dön
         self.full_ui.setCurrentIndex(1 if not self.is_locked else 0)
 
-    # 🔪 OYUN ÖLDÜRÜCÜ METOT
     def kill_current_game(self):
         if self.current_game_exe and sys.platform == "win32":
-            print(f"🔪 Süre bitti! {self.current_game_exe} zorla kapatılıyor...")
+            print(f"🔪 {self.current_game_exe} kapatılıyor...")
             try:
                 subprocess.run(["taskkill", "/F", "/IM", self.current_game_exe, "/T"], capture_output=True)
                 subprocess.run(["taskkill", "/F", "/IM", "acs.exe", "/T"], capture_output=True)
-            except Exception as e:
-                print(f"❌ Kapatma hatası: {e}")
+            except: pass
             self.current_game_exe = None
 
     def sync_status(self, locked_cloud, time_cloud, user_name):
-        self.welcome_label.setText(f"HOŞ GELDİN, {user_name.upper()}")
+        self.current_user_name = user_name.upper()
+        self.welcome_label.setText(f"HOŞ GELDİN, {self.current_user_name}")
         
         if self.is_locked == True and locked_cloud == False:
             self.is_locked = False; self.remaining_seconds = time_cloud; self.last_synced_cloud_time = time_cloud
             self.switch_to_full(); self.full_ui.setCurrentIndex(1); self.player.stop()
-        
         elif self.is_locked == False and locked_cloud == True:
             self.kill_current_game() 
             self.is_locked = True; self.remaining_seconds = 0; self.last_synced_cloud_time = -1
             self.switch_to_full(); self.full_ui.setCurrentIndex(0); self.player.play()
-        
         elif not self.is_locked:
             if time_cloud != self.last_synced_cloud_time:
                 self.remaining_seconds = time_cloud; self.last_synced_cloud_time = time_cloud
@@ -285,8 +356,10 @@ class SpeedPointAgent(QWidget):
             self.remaining_seconds -= 1
             mins, secs = divmod(self.remaining_seconds, 60)
             t_str = f"{mins:02d}:{secs:02d}"
+            
             self.timer_label.setText(t_str)
-            self.mini_window.update_time(t_str) 
+            # 💡 Kapsüldeki isim ve süreyi güncelle
+            self.mini_window.update_time_and_user(t_str, self.current_user_name) 
             
             if self.remaining_seconds <= 0:
                 self.kill_current_game()
@@ -300,45 +373,29 @@ class SpeedPointAgent(QWidget):
             card.clicked.connect(self.launch_game)
             self.grid.addWidget(card, i // 3, i % 3)
 
-    # 🚀 OYUN BAŞLATMA ZEKASI (Masaüstünü Gizleyen Mantık)
     def launch_game(self, path):
-        # Eğer zaten oyun açılıyorsa veya masa kilitliyse çift tıklamaları engelle
-        if self.is_locked or not path or self.is_mini_mode:
-            return 
-            
+        if self.is_locked or not path or self.is_mini_mode: return 
         self.is_mini_mode = True
         self.current_game_exe = os.path.basename(path).strip('"')
-        print(f"🚀 Başlatılıyor: {self.current_game_exe}")
+        self.full_ui.setCurrentIndex(2) # Kalkan Perdesini aç
         
-        # 1. MASAÜSTÜNÜ KAPAT: Hemen Yükleniyor Perdesi'ni açıyoruz (Index 2)
-        self.full_ui.setCurrentIndex(2)
-        
-        # 2. OYUNU ATEŞLE
         try:
-            if sys.platform == "darwin": 
-                subprocess.Popen(["open", path])
-            elif sys.platform == "win32": 
-                os.startfile(path)
-            else:
-                subprocess.Popen([path])
+            if sys.platform == "darwin": subprocess.Popen(["open", path])
+            elif sys.platform == "win32": os.startfile(path)
+            else: subprocess.Popen([path])
         except Exception as e:
-            print(f"❌ Oyun başlatılamadı kanka: {e}")
-            self.switch_to_full() # Hata olursa kalkanı kaldırıp galeriye dön
+            self.switch_to_full()
             return
             
-        # 3. ZAMANLAYICI: 8 Saniye sonra kalkanı kaldırıp mini kapsülü göster
-        # Oyunun açılıp tam ekran olması için gereken süredir kanka
         QTimer.singleShot(8000, self.finalize_game_launch)
 
     def finalize_game_launch(self):
-        # 8 saniye sonra eğer hala mini moddaysak (oyundan çıkılmadıysa) gizlen.
         if not self.is_locked and self.is_mini_mode:
-            self.hide() # Gerçek gizlenme işlemi burada! Oyun zaten ekrana oturmuş oluyor.
-            
+            self.hide() # Ana ekranı gizle
             screen_geo = QApplication.primaryScreen().geometry()
             pill_w, pill_h = self.mini_window.width(), self.mini_window.height()
             self.mini_window.move(screen_geo.width() - pill_w - 20, 20)
-            self.mini_window.show()
+            self.mini_window.show() # Mini kapsülü göster
 
     def check_pin(self):
         if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN")
