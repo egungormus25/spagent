@@ -22,6 +22,7 @@ BACKGROUND_IMAGE_FILE = "supercar_bg.jpg"
 PIN_CODE = "1923"
 
 NETFLIX_RED = "#E50914"
+NETFLIX_BLACK = "#141414"
 
 # --- 📡 NETWORK MOTORU ---
 class NetworkWorker(QObject):
@@ -69,12 +70,10 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
-# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL (Görünmez Duvar Sorununu Çözen Sınıf) ---
+# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL ---
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
-        # 💡 Sadece üstte kalmaz, aynı zamanda bir "Tool" (araç) penceresi olur. 
-        # Bu sayede arkasındaki hiçbir oyunun tıklamasını engellemez.
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
@@ -144,8 +143,9 @@ class SpeedPointAgent(QWidget):
         self.main_stacked.setStackingMode(QStackedLayout.StackAll)
 
         self.full_ui = QStackedWidget()
-        self.setup_locked_view()
-        self.setup_active_view()
+        self.setup_locked_view()     # Index 0
+        self.setup_active_view()     # Index 1
+        self.setup_loading_view()    # Index 2 💡 (YENİ: Yükleniyor Perdesi)
         self.main_stacked.addWidget(self.full_ui)
 
         self.setup_admin_panel()
@@ -153,7 +153,6 @@ class SpeedPointAgent(QWidget):
         self.loader = ImageLoader()
         self.loader.done.connect(lambda pix, lbl: lbl.setPixmap(pix))
         
-        # 💡 Bağımsız Mini Kapsülümüzü oluşturuyoruz (başlangıçta gizli)
         self.mini_window = MiniPillWindow(self.scale_factor)
         self.mini_window.hide()
         
@@ -213,6 +212,29 @@ class SpeedPointAgent(QWidget):
         lay.addWidget(self.bg_label, 0, 0); lay.addWidget(self.scrim_overlay, 0, 0); lay.addWidget(ui_frame, 0, 0)
         self.full_ui.addWidget(self.active_widget)
 
+    # 💡 YENİ EKRAN: Yükleniyor Perdesi (Masaüstünü kapatan kalkan)
+    def setup_loading_view(self):
+        self.loading_widget = QWidget()
+        self.loading_widget.setStyleSheet(f"background-color: {NETFLIX_BLACK};")
+        lay = QVBoxLayout(self.loading_widget)
+        
+        logo = QLabel()
+        l_path = os.path.join(os.path.dirname(__file__), LOGO_FILE)
+        if os.path.exists(l_path): 
+            logo.setPixmap(QPixmap(l_path).scaledToHeight(int(200*self.scale_factor), Qt.SmoothTransformation))
+            
+        text = QLabel("OYUN BAŞLATILIYOR...\nLÜTFEN BEKLEYİN")
+        text.setAlignment(Qt.AlignCenter)
+        text.setStyleSheet(f"color: white; font-size: {int(50*self.scale_factor)}px; font-weight: 900;")
+        
+        lay.addStretch()
+        lay.addWidget(logo, alignment=Qt.AlignCenter)
+        lay.addSpacing(50)
+        lay.addWidget(text, alignment=Qt.AlignCenter)
+        lay.addStretch()
+        
+        self.full_ui.addWidget(self.loading_widget)
+
     def setup_admin_panel(self):
         self.admin_overlay = QFrame(self); self.admin_overlay.setStyleSheet("background: rgba(0,0,0,230);"); self.admin_overlay.setVisible(False)
         lay = QVBoxLayout(self.admin_overlay); box = QFrame(); box.setFixedSize(int(600*self.scale_factor), int(400*self.scale_factor))
@@ -224,30 +246,19 @@ class SpeedPointAgent(QWidget):
         b_lay.addWidget(QLabel("ADMIN PIN", styleSheet="color: white; font-weight: bold;")); b_lay.addWidget(self.pin_input); b_lay.addWidget(btn)
         lay.addWidget(box, 0, Qt.AlignCenter)
 
-    # 💡 KİOSK ÇÖZÜMÜ: Mod Geçişleri
-    def switch_to_mini(self):
-        self.is_mini_mode = True
-        self.hide() # Dev ana ekranı tamamen GİZLE, görünmez duvarlar bitsin!
-        
-        # Sadece küçük kapsülü göster ve sağ üste hizala
-        screen_geo = QApplication.primaryScreen().geometry()
-        pill_w, pill_h = self.mini_window.width(), self.mini_window.height()
-        self.mini_window.move(screen_geo.width() - pill_w - 20, 20)
-        self.mini_window.show()
-
     def switch_to_full(self):
         self.is_mini_mode = False
-        self.mini_window.hide() # Kapsülü gizle
-        self.showFullScreen()   # Dev ana ekranı geri getir
+        self.mini_window.hide()
+        self.showFullScreen()
+        # Masa açıksa oyun galerisine, kapalıysa kilit ekranına dön
+        self.full_ui.setCurrentIndex(1 if not self.is_locked else 0)
 
-    # 🔪 OYUN ÖLDÜRÜCÜ METOT (Kurşun Geçirmez)
+    # 🔪 OYUN ÖLDÜRÜCÜ METOT
     def kill_current_game(self):
         if self.current_game_exe and sys.platform == "win32":
             print(f"🔪 Süre bitti! {self.current_game_exe} zorla kapatılıyor...")
             try:
-                # Tıklanan Exe'yi Vur
                 subprocess.run(["taskkill", "/F", "/IM", self.current_game_exe, "/T"], capture_output=True)
-                # Assetto Corsa motorunu da Vur (Launcher kullanılıyorsa arka kapıyı kapatır)
                 subprocess.run(["taskkill", "/F", "/IM", "acs.exe", "/T"], capture_output=True)
             except Exception as e:
                 print(f"❌ Kapatma hatası: {e}")
@@ -256,14 +267,12 @@ class SpeedPointAgent(QWidget):
     def sync_status(self, locked_cloud, time_cloud, user_name):
         self.welcome_label.setText(f"HOŞ GELDİN, {user_name.upper()}")
         
-        # MASA AÇILDI
         if self.is_locked == True and locked_cloud == False:
             self.is_locked = False; self.remaining_seconds = time_cloud; self.last_synced_cloud_time = time_cloud
             self.switch_to_full(); self.full_ui.setCurrentIndex(1); self.player.stop()
         
-        # MASA KİLİTLENDİ (Süre bitti veya mobilden kapattın)
         elif self.is_locked == False and locked_cloud == True:
-            self.kill_current_game() # 💡 Anında oyunu kapat!
+            self.kill_current_game() 
             self.is_locked = True; self.remaining_seconds = 0; self.last_synced_cloud_time = -1
             self.switch_to_full(); self.full_ui.setCurrentIndex(0); self.player.play()
         
@@ -277,11 +286,10 @@ class SpeedPointAgent(QWidget):
             mins, secs = divmod(self.remaining_seconds, 60)
             t_str = f"{mins:02d}:{secs:02d}"
             self.timer_label.setText(t_str)
-            self.mini_window.update_time(t_str) # 💡 Kapsüldeki süreyi güncelle
+            self.mini_window.update_time(t_str) 
             
-            # YEREL SAAT SIFIRLANDI
             if self.remaining_seconds <= 0:
-                self.kill_current_game() # 💡 Anında oyunu kapat!
+                self.kill_current_game()
                 self.sync_status(True, 0, "YARIŞÇI")
 
     def render_games(self, games):
@@ -292,22 +300,45 @@ class SpeedPointAgent(QWidget):
             card.clicked.connect(self.launch_game)
             self.grid.addWidget(card, i // 3, i % 3)
 
+    # 🚀 OYUN BAŞLATMA ZEKASI (Masaüstünü Gizleyen Mantık)
     def launch_game(self, path):
-        if not self.is_locked and path:
-            self.current_game_exe = os.path.basename(path).strip('"')
-            print(f"🚀 Başlatılıyor: {self.current_game_exe}")
+        # Eğer zaten oyun açılıyorsa veya masa kilitliyse çift tıklamaları engelle
+        if self.is_locked or not path or self.is_mini_mode:
+            return 
             
-            self.switch_to_mini() # Oyun açılırken arayüzü sakla
+        self.is_mini_mode = True
+        self.current_game_exe = os.path.basename(path).strip('"')
+        print(f"🚀 Başlatılıyor: {self.current_game_exe}")
+        
+        # 1. MASAÜSTÜNÜ KAPAT: Hemen Yükleniyor Perdesi'ni açıyoruz (Index 2)
+        self.full_ui.setCurrentIndex(2)
+        
+        # 2. OYUNU ATEŞLE
+        try:
+            if sys.platform == "darwin": 
+                subprocess.Popen(["open", path])
+            elif sys.platform == "win32": 
+                os.startfile(path)
+            else:
+                subprocess.Popen([path])
+        except Exception as e:
+            print(f"❌ Oyun başlatılamadı kanka: {e}")
+            self.switch_to_full() # Hata olursa kalkanı kaldırıp galeriye dön
+            return
             
-            try:
-                if sys.platform == "darwin": 
-                    subprocess.Popen(["open", path])
-                elif sys.platform == "win32": 
-                    os.startfile(path)
-                else:
-                    subprocess.Popen([path])
-            except Exception as e:
-                print(f"❌ Oyun başlatılamadı kanka: {e}")
+        # 3. ZAMANLAYICI: 8 Saniye sonra kalkanı kaldırıp mini kapsülü göster
+        # Oyunun açılıp tam ekran olması için gereken süredir kanka
+        QTimer.singleShot(8000, self.finalize_game_launch)
+
+    def finalize_game_launch(self):
+        # 8 saniye sonra eğer hala mini moddaysak (oyundan çıkılmadıysa) gizlen.
+        if not self.is_locked and self.is_mini_mode:
+            self.hide() # Gerçek gizlenme işlemi burada! Oyun zaten ekrana oturmuş oluyor.
+            
+            screen_geo = QApplication.primaryScreen().geometry()
+            pill_w, pill_h = self.mini_window.width(), self.mini_window.height()
+            self.mini_window.move(screen_geo.width() - pill_w - 20, 20)
+            self.mini_window.show()
 
     def check_pin(self):
         if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN")
