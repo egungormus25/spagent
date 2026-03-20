@@ -69,11 +69,18 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
-# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL ---
+# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL (NÜKLEER BYPASS MODU) ---
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput | Qt.BypassWindowManagerHint)
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | 
+            Qt.WindowStaysOnTopHint | 
+            Qt.Tool | 
+            Qt.WindowDoesNotAcceptFocus | 
+            Qt.WindowTransparentForInput | 
+            Qt.BypassWindowManagerHint 
+        )
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating) 
         
@@ -111,14 +118,13 @@ class MiniPillWindow(QWidget):
             self.telemetry_label.setText("MENÜ VEYA LOBİ BEKLENİYOR...")
             self.telemetry_label.setStyleSheet(f"color: #AAA; font-size: {int(18 * scale_factor)}px; font-weight: bold;")
 
-# --- 🏎️ ASSETTO CORSA TELEMETRİ MOTORU (SİHİRLİ DÜZELTME) ---
+# --- 🏎️ ASSETTO CORSA TELEMETRİ MOTORU (SİHİRLİ DÜZELTME - SALT OKUNUR) ---
 class ACTelemetryWorker(QObject):
     telemetry_updated = Signal(str, str, str)
     def run(self):
         if sys.platform != "win32": return
         import ctypes; import mmap
         
-        # Windows API bağlantısı (Hafızayı çökertmemek için)
         kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
         FILE_MAP_READ = 4
 
@@ -134,19 +140,17 @@ class ACTelemetryWorker(QObject):
                         ("lastTime", ctypes.c_wchar * 15), ("bestTime", ctypes.c_wchar * 15)]
         
         while True:
-            # 💡 KRİTİK ÇÖZÜM: Oyun açılmadan asla mmap çağırma! Önce bellek var mı diye sadece "kontrol" et.
+            # Assetto Corsa'nın hafıza oluşturmasını bekle. Biz yaratmayız!
             handle_static = kernel32.OpenFileMappingW(FILE_MAP_READ, False, "Local\\acpmf_static")
             if not handle_static:
-                # Oyun kapalı veya henüz belleği yaratmadı. Bekle.
                 self.telemetry_updated.emit("", "", "")
                 time.sleep(1)
                 continue
             
-            # Bellek var, demek ki oyun açılmış. Açtığımız güvenlik handle'ını kapat.
             kernel32.CloseHandle(handle_static)
 
             try:
-                # 💡 ACCESS_READ: Kesinlikle sadece okuma modunda bağlan.
+                # Sadece okuma (Read-Only) erişimi ile bağlan
                 shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static", access=mmap.ACCESS_READ)
                 shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics", access=mmap.ACCESS_READ)
                 
@@ -158,10 +162,9 @@ class ACTelemetryWorker(QObject):
                 else: 
                     self.telemetry_updated.emit("", "", "")
                 
-                # Bellekleri serbest bırak ki Assetto Corsa boğulmasın.
                 shm_static.close()
                 shm_graphics.close()
-            except Exception as e: 
+            except Exception: 
                 self.telemetry_updated.emit("", "", "")
             
             time.sleep(0.5)
@@ -218,8 +221,8 @@ class SpeedPointAgent(QWidget):
         self.main_stacked.setStackingMode(QStackedLayout.StackAll)
 
         self.full_ui = QStackedWidget()
-        self.setup_locked_view()     # Index 0
-        self.setup_active_view()     # Index 1
+        self.setup_locked_view()     
+        self.setup_active_view()     
         self.main_stacked.addWidget(self.full_ui)
 
         self.setup_admin_panel()
@@ -341,10 +344,13 @@ class SpeedPointAgent(QWidget):
             card.clicked.connect(self.launch_game)
             self.grid.addWidget(card, i // 3, i % 3)
 
+    # 💡 CWD ve ONEDRIVE ÇÖZÜMÜ
     def launch_game(self, path):
         if self.is_locked or not path or self.is_mini_mode: return 
         self.is_mini_mode = True
-        self.current_game_exe = os.path.basename(path).strip('"')
+        
+        clean_path = path.strip('"')
+        self.current_game_exe = os.path.basename(clean_path)
         
         self.showMinimized() 
         
@@ -354,13 +360,19 @@ class SpeedPointAgent(QWidget):
         self.mini_window.show()
 
         try:
-            if sys.platform == "darwin": subprocess.Popen(["open", path])
+            # Oyunun kurulu olduğu klasörü tespit edip "Current Working Directory" (CWD) olarak atıyoruz.
+            game_dir = os.path.dirname(clean_path)
+            
+            if sys.platform == "darwin": 
+                subprocess.Popen(["open", clean_path])
             elif sys.platform == "win32": 
-                # 💡 İKİNCİ SİHİR: Oyunu CWD (çalışma dizini) hatalarından korumak için Windows Shell üzerinden fırlatıyoruz.
-                subprocess.Popen(f'start "" "{path}"', shell=True)
-            else: subprocess.Popen([path])
+                # Oyunu kendi evinde, kendi dosyalarını görerek başlatmasını zorla!
+                subprocess.Popen(f'"{clean_path}"', shell=True, cwd=game_dir)
+            else: 
+                subprocess.Popen([clean_path], cwd=game_dir)
         except Exception as e:
             self.switch_to_full()
+            print(f"❌ Oyun başlatılamadı: {e}")
 
     def check_pin(self):
         if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN")
