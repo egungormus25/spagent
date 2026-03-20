@@ -69,6 +69,29 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
+# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL (Görünmez Duvar Sorununu Çözen Sınıf) ---
+class MiniPillWindow(QWidget):
+    def __init__(self, scale_factor):
+        super().__init__()
+        # 💡 Sadece üstte kalmaz, aynı zamanda bir "Tool" (araç) penceresi olur. 
+        # Bu sayede arkasındaki hiçbir oyunun tıklamasını engellemez.
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        self.setFixedSize(int(200 * scale_factor), int(70 * scale_factor))
+        self.setStyleSheet("background: rgba(20, 20, 20, 230); border-radius: 35px; border: 2px solid #E50914;")
+        
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        
+        self.timer_label = QLabel("00:00")
+        self.timer_label.setAlignment(Qt.AlignCenter)
+        self.timer_label.setStyleSheet(f"color: white; font-size: {int(30 * scale_factor)}px; font-weight: 900;")
+        lay.addWidget(self.timer_label)
+
+    def update_time(self, t_str):
+        self.timer_label.setText(t_str)
+
 # --- 🎮 MEGA OYUN KARTI ---
 class GameCard(QFrame):
     clicked = Signal(str)
@@ -125,21 +148,20 @@ class SpeedPointAgent(QWidget):
         self.setup_active_view()
         self.main_stacked.addWidget(self.full_ui)
 
-        self.mini_pill = QFrame()
-        self.setup_mini_pill()
-        self.main_stacked.addWidget(self.mini_pill)
-
         self.setup_admin_panel()
 
         self.loader = ImageLoader()
         self.loader.done.connect(lambda pix, lbl: lbl.setPixmap(pix))
+        
+        # 💡 Bağımsız Mini Kapsülümüzü oluşturuyoruz (başlangıçta gizli)
+        self.mini_window = MiniPillWindow(self.scale_factor)
+        self.mini_window.hide()
         
         self.remaining_seconds = 0
         self.is_locked = True
         self.last_synced_cloud_time = -1
         self.is_mini_mode = False
         
-        # 💡 Açık olan oyunun EXE adını tutacağımız değişken
         self.current_game_exe = None
 
         self.worker = NetworkWorker()
@@ -148,18 +170,6 @@ class SpeedPointAgent(QWidget):
         threading.Thread(target=self.worker.run, daemon=True).start()
 
         self.ticker = QTimer(self); self.ticker.timeout.connect(self.local_tick); self.ticker.start(1000)
-
-    def setup_mini_pill(self):
-        # 💡 Sadece sağ üstte kalacak minicik bir kapsül (200x70)
-        self.mini_pill.setStyleSheet("background: rgba(20, 20, 20, 230); border-radius: 35px; border: 2px solid #E50914;")
-        self.mini_pill.setVisible(False)
-        pill_lay = QHBoxLayout(self.mini_pill)
-        pill_lay.setContentsMargins(0, 0, 0, 0)
-        
-        self.mini_timer = QLabel("00:00")
-        self.mini_timer.setAlignment(Qt.AlignCenter)
-        self.mini_timer.setStyleSheet(f"color: white; font-size: {int(30*self.scale_factor)}px; font-weight: 900;")
-        pill_lay.addWidget(self.mini_timer)
 
     def setup_locked_view(self):
         self.locked_widget = QWidget()
@@ -214,48 +224,46 @@ class SpeedPointAgent(QWidget):
         b_lay.addWidget(QLabel("ADMIN PIN", styleSheet="color: white; font-weight: bold;")); b_lay.addWidget(self.pin_input); b_lay.addWidget(btn)
         lay.addWidget(box, 0, Qt.AlignCenter)
 
+    # 💡 KİOSK ÇÖZÜMÜ: Mod Geçişleri
     def switch_to_mini(self):
-        # 💡 PENCEREYİ GERÇEKTEN KÜÇÜLTÜYORUZ (Oyun tıklamalarını engellememesi için)
         self.is_mini_mode = True
-        self.showNormal() # Full ekrandan çık
-        self.full_ui.setVisible(False)
-        self.mini_pill.setVisible(True)
+        self.hide() # Dev ana ekranı tamamen GİZLE, görünmez duvarlar bitsin!
         
-        pill_w, pill_h = int(200*self.scale_factor), int(70*self.scale_factor)
-        self.setFixedSize(pill_w, pill_h) # Pencereyi sadece kapsül kadar yap
-        
+        # Sadece küçük kapsülü göster ve sağ üste hizala
         screen_geo = QApplication.primaryScreen().geometry()
-        # Ekranın sağ üst köşesine taşı
-        self.move(screen_geo.width() - pill_w - 20, 20)
+        pill_w, pill_h = self.mini_window.width(), self.mini_window.height()
+        self.mini_window.move(screen_geo.width() - pill_w - 20, 20)
+        self.mini_window.show()
 
     def switch_to_full(self):
-        # 💡 PENCEREYİ GERİ BÜYÜTÜYORUZ
         self.is_mini_mode = False
-        self.setMaximumSize(16777215, 16777215) # Kısıtlamayı kaldır
-        self.setMinimumSize(0, 0)
-        self.mini_pill.setVisible(False)
-        self.full_ui.setVisible(True)
-        self.showFullScreen() # Tekrar dev ekrana dön
+        self.mini_window.hide() # Kapsülü gizle
+        self.showFullScreen()   # Dev ana ekranı geri getir
 
-    # 🔪 OYUN ÖLDÜRÜCÜ METOT
+    # 🔪 OYUN ÖLDÜRÜCÜ METOT (Kurşun Geçirmez)
     def kill_current_game(self):
         if self.current_game_exe and sys.platform == "win32":
             print(f"🔪 Süre bitti! {self.current_game_exe} zorla kapatılıyor...")
             try:
+                # Tıklanan Exe'yi Vur
                 subprocess.run(["taskkill", "/F", "/IM", self.current_game_exe, "/T"], capture_output=True)
+                # Assetto Corsa motorunu da Vur (Launcher kullanılıyorsa arka kapıyı kapatır)
+                subprocess.run(["taskkill", "/F", "/IM", "acs.exe", "/T"], capture_output=True)
             except Exception as e:
                 print(f"❌ Kapatma hatası: {e}")
             self.current_game_exe = None
 
     def sync_status(self, locked_cloud, time_cloud, user_name):
         self.welcome_label.setText(f"HOŞ GELDİN, {user_name.upper()}")
+        
+        # MASA AÇILDI
         if self.is_locked == True and locked_cloud == False:
             self.is_locked = False; self.remaining_seconds = time_cloud; self.last_synced_cloud_time = time_cloud
             self.switch_to_full(); self.full_ui.setCurrentIndex(1); self.player.stop()
         
+        # MASA KİLİTLENDİ (Süre bitti veya mobilden kapattın)
         elif self.is_locked == False and locked_cloud == True:
-            # 💡 Kilitlendiğinde oyunu öldür
-            self.kill_current_game()
+            self.kill_current_game() # 💡 Anında oyunu kapat!
             self.is_locked = True; self.remaining_seconds = 0; self.last_synced_cloud_time = -1
             self.switch_to_full(); self.full_ui.setCurrentIndex(0); self.player.play()
         
@@ -267,10 +275,13 @@ class SpeedPointAgent(QWidget):
         if not self.is_locked and self.remaining_seconds > 0:
             self.remaining_seconds -= 1
             mins, secs = divmod(self.remaining_seconds, 60)
-            t_str = f"{mins:02d}:{secs:02d}"; self.timer_label.setText(t_str); self.mini_timer.setText(t_str)
+            t_str = f"{mins:02d}:{secs:02d}"
+            self.timer_label.setText(t_str)
+            self.mini_window.update_time(t_str) # 💡 Kapsüldeki süreyi güncelle
+            
+            # YEREL SAAT SIFIRLANDI
             if self.remaining_seconds <= 0:
-                # 💡 Yerel saat bittiğinde de oyunu öldür
-                self.kill_current_game()
+                self.kill_current_game() # 💡 Anında oyunu kapat!
                 self.sync_status(True, 0, "YARIŞÇI")
 
     def render_games(self, games):
@@ -283,11 +294,10 @@ class SpeedPointAgent(QWidget):
 
     def launch_game(self, path):
         if not self.is_locked and path:
-            self.switch_to_mini() 
-            
-            # 💡 Oyunun EXE adını hafızaya al (örn: acs.exe)
-            self.current_game_exe = os.path.basename(path)
+            self.current_game_exe = os.path.basename(path).strip('"')
             print(f"🚀 Başlatılıyor: {self.current_game_exe}")
+            
+            self.switch_to_mini() # Oyun açılırken arayüzü sakla
             
             try:
                 if sys.platform == "darwin": 
@@ -307,7 +317,7 @@ class SpeedPointAgent(QWidget):
         if event.key() == Qt.Key_X and (event.modifiers() & Qt.ControlModifier or event.modifiers() & Qt.MetaModifier) and (event.modifiers() & Qt.ShiftModifier):
             QApplication.quit()
         if event.key() == Qt.Key_Escape and self.is_mini_mode:
-            self.kill_current_game() # 💡 ESC ile çıkarsak da oyunu kapatsın
+            self.kill_current_game() 
             self.switch_to_full()
         if event.key() == Qt.Key_M and (event.modifiers() & Qt.ControlModifier or event.modifiers() & Qt.MetaModifier) and (event.modifiers() & Qt.ShiftModifier):
             self.admin_overlay.setGeometry(0, 0, self.width(), self.height()); self.admin_overlay.setVisible(True); self.pin_input.setFocus()
