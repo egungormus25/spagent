@@ -15,7 +15,6 @@ PROJECT_ID = "speedpoint-928e1"
 MACHINE_ID = "PC_01" 
 FIRESTORE_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/machines/{MACHINE_ID}"
 GAMES_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/games"
-# 💡 YENİ: Liderlik Tablosu (Rekorların Kaydedileceği Koleksiyon)
 LEADERBOARD_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/leaderboard"
 
 LOGO_FILE = "splogo.png"
@@ -28,7 +27,8 @@ NETFLIX_BLACK = "#141414"
 
 # --- 📡 NETWORK MOTORU ---
 class NetworkWorker(QObject):
-    status_updated = Signal(bool, int, str)
+    # 💡 Sinyale 4. Değişken Eklendi: userId (str)
+    status_updated = Signal(bool, int, str, str)
     games_loaded = Signal(list)
 
     def run(self):
@@ -41,7 +41,11 @@ class NetworkWorker(QObject):
                     is_locked = fields.get("isLocked", {}).get("booleanValue", True)
                     rem_time = int(fields.get("remainingTime", {}).get("integerValue", "0"))
                     u_name = fields.get("userName", {}).get("stringValue", "Yarışçı")
-                    self.status_updated.emit(is_locked, rem_time, u_name)
+                    
+                    # 💡 YENİ: Makine belgesinden userId'yi çekiyoruz
+                    u_id = fields.get("userId", {}).get("stringValue", "") 
+                    
+                    self.status_updated.emit(is_locked, rem_time, u_name, u_id)
             except: pass
             time.sleep(3)
 
@@ -111,13 +115,10 @@ class MiniPillWindow(QWidget):
         self.timer_label.setText(t_str)
         self.user_label.setText(f"🏎️ {user_name}")
 
-    # 💡 ARAÇ BİLGİSİ EKLENDİ (car)
     def update_telemetry(self, track, car, curr, best, scale_factor):
         if track:
             c_time = curr if curr and curr != "0" else "--:--.---"
             b_time = best if best and best != "0" else "--:--.---"
-            
-            # Sığması için fontu 16px'e indirdik ve araç ismini kısaca ekledik
             self.telemetry_label.setText(f"🚗 {car[:15]} | 📍 {track} | ⏱️ {c_time} | 👑 {b_time}")
             self.telemetry_label.setStyleSheet(f"color: #00FF88; font-size: {int(16 * scale_factor)}px; font-weight: bold;")
         else:
@@ -126,7 +127,6 @@ class MiniPillWindow(QWidget):
 
 # --- 🏎️ ASSETTO CORSA TELEMETRİ MOTORU ---
 class ACTelemetryWorker(QObject):
-    # 💡 Sinyale 4. Değişken Eklendi: Araç Adı (str, str, str, str)
     telemetry_updated = Signal(str, str, str, str)
     def run(self):
         if sys.platform != "win32": return
@@ -149,7 +149,7 @@ class ACTelemetryWorker(QObject):
                 shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics")
                 
                 track_name = ACStatic.from_buffer(shm_static).track
-                car_name = ACStatic.from_buffer(shm_static).carModel  # 💡 Araç çekildi!
+                car_name = ACStatic.from_buffer(shm_static).carModel
                 g_data = ACGraphics.from_buffer(shm_graphics)
                 
                 if g_data.status == 2 and track_name:
@@ -231,9 +231,9 @@ class SpeedPointAgent(QWidget):
         self.last_synced_cloud_time = -1
         self.is_mini_mode = False
         self.current_user_name = "YARIŞÇI"
+        self.current_user_id = "" # 💡 YENİ: Başlangıçta boş ID
         self.current_game_exe = None
 
-        # 💡 OYUN İÇİ REKOR HAFIZASI (Session Memory)
         self.session_track = ""
         self.session_car = ""
         self.session_best_time = ""
@@ -249,24 +249,20 @@ class SpeedPointAgent(QWidget):
 
         self.ticker = QTimer(self); self.ticker.timeout.connect(self.local_tick); self.ticker.start(1000)
 
-    # 💡 TELEMETRİ GELDİKÇE REKORLARI HAFIZAYA YAZAN METOT
     def handle_telemetry(self, track, car, curr, best):
-        # Eğer geçerli bir 'best time' varsa aklımızda tutalım
         if best and best != "0" and best != "--:--.---":
             self.session_track = track
             self.session_car = car
             self.session_best_time = best
-            
-        # UI'ı Güncelle
         self.mini_window.update_telemetry(track, car, curr, best, self.scale_factor)
 
-    # 💡 SÜRE BİTTİĞİNDE REKORU BULUTA (FIRESTORE) GÖNDEREN METOT
     def save_session_record(self):
         if self.session_best_time and self.session_best_time != "0" and self.session_best_time != "--:--.---":
-            print(f"🏆 REKOR KAYDEDİLİYOR: {self.current_user_name} | {self.session_car} | {self.session_track} | {self.session_best_time}")
+            print(f"🏆 REKOR KAYDEDİLİYOR: {self.current_user_name} ({self.current_user_id}) | {self.session_car} | {self.session_track} | {self.session_best_time}")
             
             payload = {
                 "fields": {
+                    "userId": {"stringValue": self.current_user_id}, # 💡 YENİ EKLENDİ!
                     "userName": {"stringValue": self.current_user_name},
                     "carModel": {"stringValue": self.session_car},
                     "track": {"stringValue": self.session_track},
@@ -274,14 +270,12 @@ class SpeedPointAgent(QWidget):
                 }
             }
             
-            # Ana sistemi dondurmamak için bunu ayrı bir arka plan işçisinde fırlatıyoruz
             def _post():
                 try: requests.post(LEADERBOARD_URL, json=payload, timeout=5)
                 except Exception as e: print(f"Bulut kayıt hatası: {e}")
             
             threading.Thread(target=_post, daemon=True).start()
             
-        # Hafızayı sıfırla ki bir sonraki müşteriye eski veriler sarkmasın
         self.session_track = ""
         self.session_car = ""
         self.session_best_time = ""
@@ -352,8 +346,10 @@ class SpeedPointAgent(QWidget):
             except: pass
             self.current_game_exe = None
 
-    def sync_status(self, locked_cloud, time_cloud, user_name):
+    # 💡 SYNC GÜNCELLEMESİ: user_id eklendi
+    def sync_status(self, locked_cloud, time_cloud, user_name, user_id):
         self.current_user_name = user_name.upper()
+        self.current_user_id = user_id # 💡 Yeni veri alındı
         self.welcome_label.setText(f"HOŞ GELDİN, {self.current_user_name}")
         
         if self.is_locked == True and locked_cloud == False:
@@ -361,7 +357,6 @@ class SpeedPointAgent(QWidget):
             self.switch_to_full(); self.full_ui.setCurrentIndex(1); self.player.stop()
             
         elif self.is_locked == False and locked_cloud == True:
-            # 💡 MASA KAPANMA EMRİ GELDİ (Telefondan kapatıldı) -> Kaydet ve Kapat!
             self.save_session_record()
             self.kill_current_game() 
             self.is_locked = True; self.remaining_seconds = 0; self.last_synced_cloud_time = -1
@@ -380,10 +375,9 @@ class SpeedPointAgent(QWidget):
             self.mini_window.update_time_and_user(t_str, self.current_user_name) 
             
             if self.remaining_seconds <= 0:
-                # 💡 SÜRE BİTTİ -> Kaydet ve Kapat!
                 self.save_session_record()
                 self.kill_current_game()
-                self.sync_status(True, 0, "YARIŞÇI")
+                self.sync_status(True, 0, "YARIŞÇI", "") # Süre bitince ID'yi de boşalt
 
     def render_games(self, games):
         while self.grid.count():
@@ -424,14 +418,13 @@ class SpeedPointAgent(QWidget):
             self.hide() 
 
     def check_pin(self):
-        if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN")
+        if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN", "ADMIN_001")
         self.pin_input.clear()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_X and (event.modifiers() & Qt.ControlModifier or event.modifiers() & Qt.MetaModifier) and (event.modifiers() & Qt.ShiftModifier):
             QApplication.quit()
         if event.key() == Qt.Key_Escape and self.is_mini_mode:
-            # 💡 Kullanıcı ESC ile kendisi çıkarsa da rekoru kaydet
             self.save_session_record()
             self.kill_current_game() 
             self.switch_to_full()
