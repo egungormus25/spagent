@@ -24,6 +24,58 @@ PIN_CODE = "1923"
 NETFLIX_RED = "#E50914"
 NETFLIX_BLACK = "#141414"
 
+# --- 🏎️ ASSETTO CORSA TELEMETRİ MOTORU ---
+class ACTelemetryWorker(QObject):
+    telemetry_updated = Signal(str, str)
+
+    def run(self):
+        if sys.platform != "win32":
+            return # Mac'te telemetri çalışmaz kanka, sessizce geç.
+
+        import ctypes
+        import mmap
+
+        class ACStatic(ctypes.Structure):
+            _pack_ = 4
+            _fields_ = [
+                ("smVersion", ctypes.c_wchar * 15),
+                ("acVersion", ctypes.c_wchar * 15),
+                ("numberOfSessions", ctypes.c_int32),
+                ("numCars", ctypes.c_int32),
+                ("carModel", ctypes.c_wchar * 33),
+                ("track", ctypes.c_wchar * 33),
+            ]
+
+        class ACGraphics(ctypes.Structure):
+            _pack_ = 4
+            _fields_ = [
+                ("packetId", ctypes.c_int32),
+                ("status", ctypes.c_int32),
+                ("session", ctypes.c_int32),
+                ("currentTime", ctypes.c_wchar * 15),
+                ("lastTime", ctypes.c_wchar * 15),
+                ("bestTime", ctypes.c_wchar * 15),
+            ]
+
+        while True:
+            try:
+                shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static")
+                static_data = ACStatic.from_buffer(shm_static)
+                track_name = static_data.track
+
+                shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics")
+                graphics_data = ACGraphics.from_buffer(shm_graphics)
+                best_time = graphics_data.bestTime
+
+                if track_name:
+                    self.telemetry_updated.emit(track_name.upper(), best_time)
+                else:
+                    self.telemetry_updated.emit("", "")
+            except Exception:
+                self.telemetry_updated.emit("", "")
+            
+            time.sleep(1)
+
 # --- 📡 NETWORK MOTORU ---
 class NetworkWorker(QObject):
     status_updated = Signal(bool, int, str)
@@ -77,31 +129,39 @@ class GameCard(QFrame):
         super().__init__(parent)
         self.local_path = local_path
         self.scale_factor = scale_factor
+        
         base_width, base_height = int(520 * self.scale_factor), int(780 * self.scale_factor)
         self.base_poster_size = QSize(base_width, base_height)
         self.hover_poster_size = QSize(int(base_width * 1.1), int(base_height * 1.1))
         self.card_cell_size = QSize(int(base_width * 1.25), int(base_height * 1.45))
+        
         self.setFixedSize(self.card_cell_size)
         self.main_lay = QVBoxLayout(self); self.main_lay.setContentsMargins(0, 0, 0, 0)
         self.poster_container = QFrame(); self.poster_container.setFixedSize(self.hover_poster_size + QSize(30, 30))
         self.main_lay.addWidget(self.poster_container, 0, Qt.AlignCenter)
+        
         self.poster = QLabel(self.poster_container); self.poster.setFixedSize(self.base_poster_size)
         self.poster.setStyleSheet("background: #1a1a1a; border-radius: 25px; border: 3px solid #333;")
         self.poster.setCursor(Qt.PointingHandCursor); self.center_poster()
+        
         self.title_label = QLabel(title); self.title_label.setStyleSheet(f"color: #AAA; font-size: {int(28 * self.scale_factor)}px; font-weight: bold;")
         self.title_label.setAlignment(Qt.AlignCenter); self.main_lay.addWidget(self.title_label)
+        
         self.anim = QPropertyAnimation(self.poster, b"geometry"); self.anim.setDuration(200); self.anim.setEasingCurve(QEasingCurve.OutQuart)
         self.poster.mousePressEvent = lambda e: self.clicked.emit(self.local_path)
         if img_url: loader.load(img_url, self.poster, self.hover_poster_size)
+
     def center_poster(self):
         cw, ch = self.poster_container.width(), self.poster_container.height()
         pw, ph = self.poster.width(), self.poster.height()
         self.poster.move((cw - pw) / 2, (ch - ph) / 2)
+
     def enterEvent(self, event):
         cw, ch = self.poster_container.width(), self.poster_container.height()
         w, h = self.hover_poster_size.width(), self.hover_poster_size.height()
         self.anim.setEndValue(QRect((cw - w) / 2, (ch - h) / 2, w, h)); self.anim.start()
         self.poster.setStyleSheet("background: #1a1a1a; border-radius: 25px; border: 6px solid #E50914;")
+
     def leaveEvent(self, event):
         cw, ch = self.poster_container.width(), self.poster_container.height()
         w, h = self.base_poster_size.width(), self.base_poster_size.height()
@@ -141,20 +201,36 @@ class SpeedPointAgent(QWidget):
         self.last_synced_cloud_time = -1
         self.is_mini_mode = False
 
+        # İş Parçacıkları (Threads)
         self.worker = NetworkWorker()
         self.worker.status_updated.connect(self.sync_status)
         self.worker.games_loaded.connect(self.render_games)
         threading.Thread(target=self.worker.run, daemon=True).start()
 
+        self.ac_telemetry = ACTelemetryWorker()
+        self.ac_telemetry.telemetry_updated.connect(self.update_telemetry_ui)
+        threading.Thread(target=self.ac_telemetry.run, daemon=True).start()
+
         self.ticker = QTimer(self); self.ticker.timeout.connect(self.local_tick); self.ticker.start(1000)
 
     def setup_mini_pill(self):
-        self.mini_pill.setFixedSize(int(400*self.scale_factor), int(100*self.scale_factor))
-        self.mini_pill.setStyleSheet("background: rgba(20, 20, 20, 220); border-radius: 50px; border: 2px solid #E50914;")
+        self.mini_pill.setFixedSize(int(700*self.scale_factor), int(100*self.scale_factor))
+        self.mini_pill.setStyleSheet("background: rgba(20, 20, 20, 230); border-radius: 50px; border: 2px solid #E50914;")
         self.mini_pill.setVisible(False)
-        pill_lay = QHBoxLayout(self.mini_pill); self.mini_timer = QLabel("00:00")
-        self.mini_timer.setStyleSheet(f"color: white; font-size: {int(36*self.scale_factor)}px; font-weight: 900;")
-        pill_lay.addStretch(); pill_lay.addWidget(self.mini_timer); pill_lay.addStretch()
+        
+        pill_lay = QHBoxLayout(self.mini_pill)
+        pill_lay.setContentsMargins(40, 0, 40, 0)
+        
+        self.mini_timer = QLabel("00:00")
+        self.mini_timer.setStyleSheet(f"color: {NETFLIX_RED}; font-size: {int(40*self.scale_factor)}px; font-weight: 900;")
+        
+        self.telemetry_label = QLabel("OYUN BEKLENİYOR...")
+        self.telemetry_label.setStyleSheet(f"color: #AAA; font-size: {int(20*self.scale_factor)}px; font-weight: bold;")
+        self.telemetry_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        
+        pill_lay.addWidget(self.mini_timer)
+        pill_lay.addStretch()
+        pill_lay.addWidget(self.telemetry_label)
 
     def setup_locked_view(self):
         self.locked_widget = QWidget()
@@ -230,6 +306,14 @@ class SpeedPointAgent(QWidget):
             if time_cloud != self.last_synced_cloud_time:
                 self.remaining_seconds = time_cloud; self.last_synced_cloud_time = time_cloud
 
+    def update_telemetry_ui(self, track_name, best_time):
+        if track_name and best_time:
+            self.telemetry_label.setText(f"📍 PİST: {track_name}  |  ⏱️ EN İYİ: {best_time}")
+            self.telemetry_label.setStyleSheet(f"color: white; font-size: {int(20*self.scale_factor)}px; font-weight: bold;")
+        else:
+            self.telemetry_label.setText("OYUN BEKLENİYOR...")
+            self.telemetry_label.setStyleSheet(f"color: #666; font-size: {int(18*self.scale_factor)}px; font-weight: bold;")
+
     def local_tick(self):
         if not self.is_locked and self.remaining_seconds > 0:
             self.remaining_seconds -= 1
@@ -242,27 +326,35 @@ class SpeedPointAgent(QWidget):
             item = self.grid.takeAt(0); item.widget().deleteLater()
         for i, game in enumerate(games):
             card = GameCard(game["title"], game["imageUrl"], game["localPath"], self.loader, self.scale_factor)
-            card.clicked.connect(self.launch_game); self.grid.addWidget(card, i // 3, i % 3)
+            card.clicked.connect(self.launch_game) # 💡 BURAYI DÜZELTTİK
+            self.grid.addWidget(card, i // 3, i % 3)
 
+    # 💡 KRİTİK DÜZELTME: WinError 740 için akıllı başlatıcı
     def launch_game(self, path):
-        if not self.is_locked and path: self.switch_to_mini(); subprocess.Popen(["open", path] if sys.platform == "darwin" else path)
+        if not self.is_locked and path:
+            print(f"🚀 Oyun Başlatıldı, Mini Moda Geçiliyor: {path}")
+            self.switch_to_mini() 
+            
+            try:
+                if sys.platform == "darwin": # Mac Studio için (test)
+                    subprocess.Popen(["open", path])
+                elif sys.platform == "win32": # PC_01 (Windows) için
+                    os.startfile(path) # Yönetici izinlerini (UAC) otomatik halleder
+                else:
+                    subprocess.Popen([path])
+            except Exception as e:
+                print(f"❌ Oyun başlatılamadı kanka: {e}")
 
     def check_pin(self):
         if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN")
         self.pin_input.clear()
 
-    # --- 🧠 TUŞ KOMBİNASYONU YÖNETİMİ ---
     def keyPressEvent(self, event):
-        # 💡 ACİL ÇIKIŞ: Ctrl + Shift + X (veya Cmd + Shift + X)
+        # 🚨 ACİL ÇIKIŞ (Ctrl + Shift + X veya Cmd + Shift + X)
         if event.key() == Qt.Key_X and (event.modifiers() & Qt.ControlModifier or event.modifiers() & Qt.MetaModifier) and (event.modifiers() & Qt.ShiftModifier):
-            print("🚨 ACİL ÇIKIŞ TETİKLENDİ! Agent kapatılıyor...")
             QApplication.quit()
-
-        # Mini moddan full ekrana dön: ESC
         if event.key() == Qt.Key_Escape and self.is_mini_mode:
             self.switch_to_full()
-            
-        # Admin Panel: Ctrl + Shift + M
         if event.key() == Qt.Key_M and (event.modifiers() & Qt.ControlModifier or event.modifiers() & Qt.MetaModifier) and (event.modifiers() & Qt.ShiftModifier):
             self.admin_overlay.setGeometry(0, 0, self.width(), self.height()); self.admin_overlay.setVisible(True); self.pin_input.setFocus()
 
