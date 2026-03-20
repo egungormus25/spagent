@@ -24,62 +24,6 @@ PIN_CODE = "1923"
 NETFLIX_RED = "#E50914"
 NETFLIX_BLACK = "#141414"
 
-# --- 🏎️ ASSETTO CORSA TELEMETRİ MOTORU ---
-class ACTelemetryWorker(QObject):
-    # 💡 Yeni Sinyal: Pist, Anlık Tur, En İyi Tur
-    telemetry_updated = Signal(str, str, str)
-
-    def run(self):
-        if sys.platform != "win32":
-            return
-
-        import ctypes
-        import mmap
-
-        class ACStatic(ctypes.Structure):
-            _pack_ = 4
-            _fields_ = [
-                ("smVersion", ctypes.c_wchar * 15),
-                ("acVersion", ctypes.c_wchar * 15),
-                ("numberOfSessions", ctypes.c_int32),
-                ("numCars", ctypes.c_int32),
-                ("carModel", ctypes.c_wchar * 33),
-                ("track", ctypes.c_wchar * 33),
-            ]
-
-        class ACGraphics(ctypes.Structure):
-            _pack_ = 4
-            _fields_ = [
-                ("packetId", ctypes.c_int32),
-                ("status", ctypes.c_int32),
-                ("session", ctypes.c_int32),
-                ("currentTime", ctypes.c_wchar * 15),
-                ("lastTime", ctypes.c_wchar * 15),
-                ("bestTime", ctypes.c_wchar * 15),
-            ]
-
-        while True:
-            try:
-                shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static")
-                shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics")
-                
-                static_data = ACStatic.from_buffer(shm_static)
-                graphics_data = ACGraphics.from_buffer(shm_graphics)
-                
-                track_name = static_data.track
-                current_time = graphics_data.currentTime
-                best_time = graphics_data.bestTime
-                status = graphics_data.status
-
-                if status == 2 and track_name: # 2 = LIVE (Araç pistte)
-                    self.telemetry_updated.emit(track_name.upper(), current_time, best_time)
-                else:
-                    self.telemetry_updated.emit("", "", "")
-            except Exception:
-                self.telemetry_updated.emit("", "", "")
-            
-            time.sleep(0.5) # Telemetri arayüzünü saniyede 2 kez güncelle
-
 # --- 📡 NETWORK MOTORU ---
 class NetworkWorker(QObject):
     status_updated = Signal(bool, int, str)
@@ -126,21 +70,29 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
-# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL (Gelişmiş Telemetri Ekranı) ---
+# --- ⏱️ BAĞIMSIZ MİNİ KAPSÜL (HAYALET MOD) ---
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        # 💡 KRİTİK ÇÖZÜM: WindowDoesNotAcceptFocus ve WindowTransparentForInput
+        # Bu bayraklar sayesinde pencere ekranda görünür ama OYUNUN ODAĞINI (FOCUS) ASLA ÇALMAZ.
+        # Ayrıca oyuncu yanlışlıkla buraya tıklarsa tıklama oyuna geçer, kapsüle takılmaz!
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | 
+            Qt.WindowStaysOnTopHint | 
+            Qt.Tool | 
+            Qt.WindowDoesNotAcceptFocus | 
+            Qt.WindowTransparentForInput
+        )
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating) # Ekrana gelirken Windows'u uyandırma
         
-        # 💡 Kapsülü 2 satır veri alacak şekilde büyüttük
         self.setFixedSize(int(800 * scale_factor), int(120 * scale_factor))
         self.setStyleSheet("background: rgba(15, 15, 15, 230); border-radius: 40px; border: 2px solid #E50914;")
         
         main_lay = QVBoxLayout(self)
         main_lay.setContentsMargins(30, 15, 30, 15)
         
-        # Üst Satır: İsim ve Kalan Süre
         top_lay = QHBoxLayout()
         self.user_label = QLabel("YARIŞÇI")
         self.user_label.setStyleSheet(f"color: white; font-size: {int(20 * scale_factor)}px; font-weight: bold;")
@@ -148,7 +100,6 @@ class MiniPillWindow(QWidget):
         self.timer_label.setStyleSheet(f"color: {NETFLIX_RED}; font-size: {int(32 * scale_factor)}px; font-weight: 900;")
         top_lay.addWidget(self.user_label); top_lay.addStretch(); top_lay.addWidget(self.timer_label)
         
-        # Alt Satır: Telemetri
         self.telemetry_label = QLabel("OYUN BAŞLATILIYOR VEYA LOBİ BEKLENİYOR...")
         self.telemetry_label.setAlignment(Qt.AlignCenter)
         self.telemetry_label.setStyleSheet(f"color: #AAA; font-size: {int(18 * scale_factor)}px; font-weight: bold;")
@@ -162,7 +113,6 @@ class MiniPillWindow(QWidget):
 
     def update_telemetry(self, track, curr, best, scale_factor):
         if track:
-            # Temiz zaman formatı (0:00.000 gibi saçma süreleri temizler)
             c_time = curr if curr and curr != "0" else "--:--.---"
             b_time = best if best and best != "0" else "--:--.---"
             self.telemetry_label.setText(f"📍 {track}  |  ⏱️ TUR: {c_time}  |  👑 BEST: {b_time}")
@@ -170,6 +120,38 @@ class MiniPillWindow(QWidget):
         else:
             self.telemetry_label.setText("MENÜ VEYA LOBİ BEKLENİYOR...")
             self.telemetry_label.setStyleSheet(f"color: #AAA; font-size: {int(18 * scale_factor)}px; font-weight: bold;")
+
+# --- 🏎️ ASSETTO CORSA TELEMETRİ MOTORU ---
+class ACTelemetryWorker(QObject):
+    telemetry_updated = Signal(str, str, str)
+
+    def run(self):
+        if sys.platform != "win32": return
+        import ctypes; import mmap
+
+        class ACStatic(ctypes.Structure):
+            _pack_ = 4
+            _fields_ = [("smVersion", ctypes.c_wchar * 15), ("acVersion", ctypes.c_wchar * 15),
+                        ("numberOfSessions", ctypes.c_int32), ("numCars", ctypes.c_int32),
+                        ("carModel", ctypes.c_wchar * 33), ("track", ctypes.c_wchar * 33)]
+
+        class ACGraphics(ctypes.Structure):
+            _pack_ = 4
+            _fields_ = [("packetId", ctypes.c_int32), ("status", ctypes.c_int32),
+                        ("session", ctypes.c_int32), ("currentTime", ctypes.c_wchar * 15),
+                        ("lastTime", ctypes.c_wchar * 15), ("bestTime", ctypes.c_wchar * 15)]
+
+        while True:
+            try:
+                shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static")
+                shm_graphics = mmap.mmap(-1, ctypes.sizeof(ACGraphics), "Local\\acpmf_graphics")
+                track_name = ACStatic.from_buffer(shm_static).track
+                g_data = ACGraphics.from_buffer(shm_graphics)
+                if g_data.status == 2 and track_name:
+                    self.telemetry_updated.emit(track_name.upper(), g_data.currentTime, g_data.bestTime)
+                else: self.telemetry_updated.emit("", "", "")
+            except: self.telemetry_updated.emit("", "", "")
+            time.sleep(0.5)
 
 # --- 🎮 MEGA OYUN KARTI ---
 class GameCard(QFrame):
@@ -223,9 +205,9 @@ class SpeedPointAgent(QWidget):
         self.main_stacked.setStackingMode(QStackedLayout.StackAll)
 
         self.full_ui = QStackedWidget()
-        self.setup_locked_view()     # Index 0
-        self.setup_active_view()     # Index 1
-        self.setup_loading_view()    # Index 2
+        self.setup_locked_view()
+        self.setup_active_view()
+        self.setup_loading_view()
         self.main_stacked.addWidget(self.full_ui)
 
         self.setup_admin_panel()
@@ -255,40 +237,30 @@ class SpeedPointAgent(QWidget):
         self.ticker = QTimer(self); self.ticker.timeout.connect(self.local_tick); self.ticker.start(1000)
 
     def setup_locked_view(self):
-        self.locked_widget = QWidget()
-        lay = QGridLayout(self.locked_widget); lay.setContentsMargins(0, 0, 0, 0)
-        self.v_widget = QVideoWidget()
-        self.player = QMediaPlayer(); self.audio = QAudioOutput(); self.audio.setVolume(0)
+        self.locked_widget = QWidget(); lay = QGridLayout(self.locked_widget); lay.setContentsMargins(0, 0, 0, 0)
+        self.v_widget = QVideoWidget(); self.player = QMediaPlayer(); self.audio = QAudioOutput(); self.audio.setVolume(0)
         self.player.setAudioOutput(self.audio); self.player.setVideoOutput(self.v_widget)
         v_path = os.path.join(os.path.dirname(__file__), VIDEO_FILE)
-        if os.path.exists(v_path):
-            self.player.setSource(QUrl.fromLocalFile(v_path))
-            self.player.setLoops(QMediaPlayer.Infinite); self.player.play()
+        if os.path.exists(v_path): self.player.setSource(QUrl.fromLocalFile(v_path)); self.player.setLoops(QMediaPlayer.Infinite); self.player.play()
         scrim = QFrame(); scrim.setStyleSheet("background-color: rgba(0, 0, 0, 180);")
-        self.lock_text = QLabel("SPEED POINT\nLÜTFEN SÜRE BAŞLATIN")
-        self.lock_text.setAlignment(Qt.AlignCenter); self.lock_text.setStyleSheet(f"color: white; font-size: {int(110*self.scale_factor)}px; font-weight: 900;")
+        self.lock_text = QLabel("SPEED POINT\nLÜTFEN SÜRE BAŞLATIN"); self.lock_text.setAlignment(Qt.AlignCenter); self.lock_text.setStyleSheet(f"color: white; font-size: {int(110*self.scale_factor)}px; font-weight: 900;")
         lay.addWidget(self.v_widget, 0, 0); lay.addWidget(scrim, 0, 0); lay.addWidget(self.lock_text, 0, 0)
         self.full_ui.addWidget(self.locked_widget)
 
     def setup_active_view(self):
-        self.active_widget = QWidget()
-        lay = QGridLayout(self.active_widget); lay.setContentsMargins(0, 0, 0, 0)
-        self.bg_label = QLabel()
-        b_path = os.path.join(os.path.dirname(__file__), BACKGROUND_IMAGE_FILE)
+        self.active_widget = QWidget(); lay = QGridLayout(self.active_widget); lay.setContentsMargins(0, 0, 0, 0)
+        self.bg_label = QLabel(); b_path = os.path.join(os.path.dirname(__file__), BACKGROUND_IMAGE_FILE)
         if os.path.exists(b_path):
-            pix = QPixmap(b_path); self.bg_label.setPixmap(pix.scaled(QApplication.primaryScreen().size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
+            self.bg_label.setPixmap(QPixmap(b_path).scaled(QApplication.primaryScreen().size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
             blur = QGraphicsBlurEffect(); blur.setBlurRadius(250); self.bg_label.setGraphicsEffect(blur)
         self.scrim_overlay = QFrame(); self.scrim_overlay.setStyleSheet("background-color: rgba(0, 0, 0, 160);")
-        ui_frame = QFrame(); ui_frame.setAttribute(Qt.WA_TranslucentBackground)
-        ui_lay = QVBoxLayout(ui_frame); ui_lay.setContentsMargins(120*self.scale_factor, 100*self.scale_factor, 120*self.scale_factor, 100*self.scale_factor)
-        header = QHBoxLayout(); self.logo = QLabel()
-        l_path = os.path.join(os.path.dirname(__file__), LOGO_FILE)
+        ui_frame = QFrame(); ui_frame.setAttribute(Qt.WA_TranslucentBackground); ui_lay = QVBoxLayout(ui_frame); ui_lay.setContentsMargins(120*self.scale_factor, 100*self.scale_factor, 120*self.scale_factor, 100*self.scale_factor)
+        header = QHBoxLayout(); self.logo = QLabel(); l_path = os.path.join(os.path.dirname(__file__), LOGO_FILE)
         if os.path.exists(l_path): self.logo.setPixmap(QPixmap(l_path).scaledToHeight(int(140*self.scale_factor), Qt.SmoothTransformation))
         v_header = QVBoxLayout()
         self.welcome_label = QLabel("HOŞ GELDİN"); self.welcome_label.setStyleSheet(f"color: white; font-size: {int(36*self.scale_factor)}px; font-weight: bold;")
         self.timer_label = QLabel("00:00"); self.timer_label.setStyleSheet(f"color: {NETFLIX_RED}; font-size: {int(60*self.scale_factor)}px; font-weight: 900;")
-        v_header.addWidget(self.welcome_label); v_header.addWidget(self.timer_label)
-        header.addLayout(v_header); header.addStretch(); header.addWidget(self.logo); ui_lay.addLayout(header)
+        v_header.addWidget(self.welcome_label); v_header.addWidget(self.timer_label); header.addLayout(v_header); header.addStretch(); header.addWidget(self.logo); ui_lay.addLayout(header)
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True); self.scroll.setStyleSheet("background: transparent; border: none;")
         self.scroll_content = QWidget(); self.grid_container = QVBoxLayout(self.scroll_content); self.grid_container.setAlignment(Qt.AlignCenter)
         self.grid = QGridLayout(); self.grid.setSpacing(80 * self.scale_factor); self.grid.setAlignment(Qt.AlignCenter)
@@ -297,16 +269,10 @@ class SpeedPointAgent(QWidget):
         self.full_ui.addWidget(self.active_widget)
 
     def setup_loading_view(self):
-        self.loading_widget = QWidget()
-        self.loading_widget.setStyleSheet(f"background-color: {NETFLIX_BLACK};")
-        lay = QVBoxLayout(self.loading_widget)
-        logo = QLabel()
-        l_path = os.path.join(os.path.dirname(__file__), LOGO_FILE)
-        if os.path.exists(l_path): 
-            logo.setPixmap(QPixmap(l_path).scaledToHeight(int(200*self.scale_factor), Qt.SmoothTransformation))
-        text = QLabel("OYUN BAŞLATILIYOR...\nLÜTFEN BEKLEYİN")
-        text.setAlignment(Qt.AlignCenter)
-        text.setStyleSheet(f"color: white; font-size: {int(50*self.scale_factor)}px; font-weight: 900;")
+        self.loading_widget = QWidget(); self.loading_widget.setStyleSheet(f"background-color: {NETFLIX_BLACK};"); lay = QVBoxLayout(self.loading_widget)
+        logo = QLabel(); l_path = os.path.join(os.path.dirname(__file__), LOGO_FILE)
+        if os.path.exists(l_path): logo.setPixmap(QPixmap(l_path).scaledToHeight(int(200*self.scale_factor), Qt.SmoothTransformation))
+        text = QLabel("OYUN BAŞLATILIYOR...\nLÜTFEN BEKLEYİN"); text.setAlignment(Qt.AlignCenter); text.setStyleSheet(f"color: white; font-size: {int(50*self.scale_factor)}px; font-weight: 900;")
         lay.addStretch(); lay.addWidget(logo, alignment=Qt.AlignCenter); lay.addSpacing(50); lay.addWidget(text, alignment=Qt.AlignCenter); lay.addStretch()
         self.full_ui.addWidget(self.loading_widget)
 
@@ -324,12 +290,13 @@ class SpeedPointAgent(QWidget):
     def switch_to_full(self):
         self.is_mini_mode = False
         self.mini_window.hide()
+        # 💡 Oyundan çıkıldığında Ana Ekran'ın tekrar Assetto Corsa'yı ezebilmesi için TopMost'u geri açıyoruz
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         self.showFullScreen()
         self.full_ui.setCurrentIndex(1 if not self.is_locked else 0)
 
     def kill_current_game(self):
         if self.current_game_exe and sys.platform == "win32":
-            print(f"🔪 {self.current_game_exe} kapatılıyor...")
             try:
                 subprocess.run(["taskkill", "/F", "/IM", self.current_game_exe, "/T"], capture_output=True)
                 subprocess.run(["taskkill", "/F", "/IM", "acs.exe", "/T"], capture_output=True)
@@ -358,7 +325,6 @@ class SpeedPointAgent(QWidget):
             t_str = f"{mins:02d}:{secs:02d}"
             
             self.timer_label.setText(t_str)
-            # 💡 Kapsüldeki isim ve süreyi güncelle
             self.mini_window.update_time_and_user(t_str, self.current_user_name) 
             
             if self.remaining_seconds <= 0:
@@ -377,13 +343,18 @@ class SpeedPointAgent(QWidget):
         if self.is_locked or not path or self.is_mini_mode: return 
         self.is_mini_mode = True
         self.current_game_exe = os.path.basename(path).strip('"')
+        
         self.full_ui.setCurrentIndex(2) # Kalkan Perdesini aç
+        
+        # 💡 KRİTİK: Oyunun Kiosk'u ezebilmesi ve odak çalma sorununun bitmesi için Kiosk'un baskınlığını (TopMost) kaldırıyoruz.
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+        self.showFullScreen()
         
         try:
             if sys.platform == "darwin": subprocess.Popen(["open", path])
             elif sys.platform == "win32": os.startfile(path)
             else: subprocess.Popen([path])
-        except Exception as e:
+        except:
             self.switch_to_full()
             return
             
@@ -391,11 +362,11 @@ class SpeedPointAgent(QWidget):
 
     def finalize_game_launch(self):
         if not self.is_locked and self.is_mini_mode:
-            self.hide() # Ana ekranı gizle
+            self.hide() # Ana ekran tamamen kaybolur
             screen_geo = QApplication.primaryScreen().geometry()
             pill_w, pill_h = self.mini_window.width(), self.mini_window.height()
             self.mini_window.move(screen_geo.width() - pill_w - 20, 20)
-            self.mini_window.show() # Mini kapsülü göster
+            self.mini_window.show() # Hayalet Kapsülü ekrana bas (WindowDoesNotAcceptFocus olduğu için oyunu bozmaz)
 
     def check_pin(self):
         if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN")
