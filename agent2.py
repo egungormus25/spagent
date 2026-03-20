@@ -74,9 +74,6 @@ class ImageLoader(QObject):
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
-        # 💡 KRİTİK ÇÖZÜM: WindowDoesNotAcceptFocus ve WindowTransparentForInput
-        # Bu bayraklar sayesinde pencere ekranda görünür ama OYUNUN ODAĞINI (FOCUS) ASLA ÇALMAZ.
-        # Ayrıca oyuncu yanlışlıkla buraya tıklarsa tıklama oyuna geçer, kapsüle takılmaz!
         self.setWindowFlags(
             Qt.FramelessWindowHint | 
             Qt.WindowStaysOnTopHint | 
@@ -85,7 +82,7 @@ class MiniPillWindow(QWidget):
             Qt.WindowTransparentForInput
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_ShowWithoutActivating) # Ekrana gelirken Windows'u uyandırma
+        self.setAttribute(Qt.WA_ShowWithoutActivating) 
         
         self.setFixedSize(int(800 * scale_factor), int(120 * scale_factor))
         self.setStyleSheet("background: rgba(15, 15, 15, 230); border-radius: 40px; border: 2px solid #E50914;")
@@ -128,19 +125,16 @@ class ACTelemetryWorker(QObject):
     def run(self):
         if sys.platform != "win32": return
         import ctypes; import mmap
-
         class ACStatic(ctypes.Structure):
             _pack_ = 4
             _fields_ = [("smVersion", ctypes.c_wchar * 15), ("acVersion", ctypes.c_wchar * 15),
                         ("numberOfSessions", ctypes.c_int32), ("numCars", ctypes.c_int32),
                         ("carModel", ctypes.c_wchar * 33), ("track", ctypes.c_wchar * 33)]
-
         class ACGraphics(ctypes.Structure):
             _pack_ = 4
             _fields_ = [("packetId", ctypes.c_int32), ("status", ctypes.c_int32),
                         ("session", ctypes.c_int32), ("currentTime", ctypes.c_wchar * 15),
                         ("lastTime", ctypes.c_wchar * 15), ("bestTime", ctypes.c_wchar * 15)]
-
         while True:
             try:
                 shm_static = mmap.mmap(-1, ctypes.sizeof(ACStatic), "Local\\acpmf_static")
@@ -198,16 +192,18 @@ class SpeedPointAgent(QWidget):
         self.scale_factor = screen_size.width() / 3840.0 
         if self.scale_factor < 0.6: self.scale_factor = 0.6
         
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        # 💡 KRİTİK: Ana pencereden "WindowStaysOnTopHint" özelliğini kaldırdım!
+        # Artık oyun açıldığında bizim ekranımızla "hangimiz üstte kalacak" kavgasına girmeyecek.
+        self.setWindowFlags(Qt.FramelessWindowHint)
         self.showFullScreen()
         
         self.main_stacked = QStackedLayout(self)
         self.main_stacked.setStackingMode(QStackedLayout.StackAll)
 
         self.full_ui = QStackedWidget()
-        self.setup_locked_view()
-        self.setup_active_view()
-        self.setup_loading_view()
+        self.setup_locked_view()     # Index 0
+        self.setup_active_view()     # Index 1
+        self.setup_loading_view()    # Index 2
         self.main_stacked.addWidget(self.full_ui)
 
         self.setup_admin_panel()
@@ -290,8 +286,6 @@ class SpeedPointAgent(QWidget):
     def switch_to_full(self):
         self.is_mini_mode = False
         self.mini_window.hide()
-        # 💡 Oyundan çıkıldığında Ana Ekran'ın tekrar Assetto Corsa'yı ezebilmesi için TopMost'u geri açıyoruz
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         self.showFullScreen()
         self.full_ui.setCurrentIndex(1 if not self.is_locked else 0)
 
@@ -339,17 +333,23 @@ class SpeedPointAgent(QWidget):
             card.clicked.connect(self.launch_game)
             self.grid.addWidget(card, i // 3, i % 3)
 
+    # 💡 KRİTİK DEĞİŞİM: Odak çalmayı %100 engelleyen başlama zekası
     def launch_game(self, path):
         if self.is_locked or not path or self.is_mini_mode: return 
         self.is_mini_mode = True
         self.current_game_exe = os.path.basename(path).strip('"')
         
-        self.full_ui.setCurrentIndex(2) # Kalkan Perdesini aç
+        # 1. Hemen Kalkanı (Loading Screen) açıyoruz.
+        self.full_ui.setCurrentIndex(2) 
         
-        # 💡 KRİTİK: Oyunun Kiosk'u ezebilmesi ve odak çalma sorununun bitmesi için Kiosk'un baskınlığını (TopMost) kaldırıyoruz.
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
-        self.showFullScreen()
+        # 2. Kapsülü ŞİMDİ (Oyun Açılmadan Önce) Göster!
+        # Böylece oyun açılırken araya girip focus çalmamış olacağız.
+        screen_geo = QApplication.primaryScreen().geometry()
+        pill_w, pill_h = self.mini_window.width(), self.mini_window.height()
+        self.mini_window.move(screen_geo.width() - pill_w - 20, 20)
+        self.mini_window.show()
         
+        # 3. Oyunu Ateşle
         try:
             if sys.platform == "darwin": subprocess.Popen(["open", path])
             elif sys.platform == "win32": os.startfile(path)
@@ -358,15 +358,13 @@ class SpeedPointAgent(QWidget):
             self.switch_to_full()
             return
             
-        QTimer.singleShot(8000, self.finalize_game_launch)
+        # 4. 10 saniye bekle ve sadece kalkanı SESİZCE GİZLE.
+        # .hide() metodu Windows'ta odak çalmaz! Oyun pürüzsüzce devam eder.
+        QTimer.singleShot(10000, self.finalize_game_launch)
 
     def finalize_game_launch(self):
         if not self.is_locked and self.is_mini_mode:
-            self.hide() # Ana ekran tamamen kaybolur
-            screen_geo = QApplication.primaryScreen().geometry()
-            pill_w, pill_h = self.mini_window.width(), self.mini_window.height()
-            self.mini_window.move(screen_geo.width() - pill_w - 20, 20)
-            self.mini_window.show() # Hayalet Kapsülü ekrana bas (WindowDoesNotAcceptFocus olduğu için oyunu bozmaz)
+            self.hide() # Yükleme ekranı aradan çekilir. Assetto Corsa tam gaz devam eder.
 
     def check_pin(self):
         if self.pin_input.text() == PIN_CODE: self.admin_overlay.setVisible(False); self.sync_status(False, 3600, "ADMİN")
