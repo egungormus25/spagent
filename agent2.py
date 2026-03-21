@@ -39,20 +39,24 @@ class NetworkWorker(QObject):
                     fields = r.json().get("fields", {})
                     is_locked = fields.get("isLocked", {}).get("booleanValue", True)
                     rem_time = int(fields.get("remainingTime", {}).get("integerValue", "0"))
-                    
                     u_id = fields.get("userId", {}).get("stringValue", "") 
                     
-                    u_name = "YARIŞÇI"
+                    # 1. Önce doğrudan makinede userName yazıyor mu diye bak
+                    u_name = fields.get("userName", {}).get("stringValue", "YARIŞÇI")
                     
-                    if u_id:
+                    # 2. 💡 EĞER MAKINEDE YOKSA (YARIŞÇI KALDIYSA) VE ID VARSA: users koleksiyonuna git!
+                    if u_name == "YARIŞÇI" and u_id:
                         try:
                             user_url = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/users/{u_id}"
                             ur = requests.get(user_url, timeout=3)
                             if ur.status_code == 200:
                                 u_fields = ur.json().get("fields", {})
-                                u_name = u_fields.get("name", {}).get("stringValue", "YARIŞÇI")
-                        except Exception as e:
-                            print(f"Kullanıcı adı çekilemedi: {e}")
+                                # 🔥 İŞTE KRİTİK DÜZELTME: Veritabanındaki gibi büyük 'N' ile userName kontrolü!
+                                if "userName" in u_fields:
+                                    u_name = u_fields["userName"].get("stringValue", "YARIŞÇI")
+                                elif "name" in u_fields:
+                                    u_name = u_fields["name"].get("stringValue", "YARIŞÇI")
+                        except: pass
                     
                     self.status_updated.emit(is_locked, rem_time, u_name, u_id)
             except: pass
@@ -85,7 +89,7 @@ class ImageLoader(QObject):
             except: pass
         threading.Thread(target=_thread, daemon=True).start()
 
-# --- ⏱️ HAYALET (GHOST) HUD PENCERESİ ---
+# --- ⏱️ YENİ "PRO-SIM" HUD PENCERESİ ---
 class MiniPillWindow(QWidget):
     def __init__(self, scale_factor):
         super().__init__()
@@ -100,53 +104,70 @@ class MiniPillWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating) 
         
-        self.setFixedSize(int(1000 * scale_factor), int(300 * scale_factor))
-        self.setStyleSheet("background: transparent;")
+        self.setFixedSize(int(850 * scale_factor), int(220 * scale_factor))
         
-        self.main_lay = QGridLayout(self)
-        self.main_lay.setContentsMargins(15, 15, 15, 15)
-        self.main_lay.setSpacing(10)
-        
-        self.card_track = QFrame()
-        self.setup_card(self.card_track, "📍", "PİST BEKLENİYOR", "PİST & ARAÇ", scale_factor, (0,0))
-        
-        self.card_curr = QFrame()
-        self.setup_card(self.card_curr, "⏱️", "--:--.---", "MEVCUT TUR SÜRESİ", scale_factor, (0,1))
-        
-        self.card_rem = QFrame()
-        self.setup_card(self.card_rem, "⏳", "00:00", "KALAN SÜRE", scale_factor, (1,0), NETFLIX_RED)
-        
-        self.card_best = QFrame()
-        self.setup_card(self.card_best, "👑", "--:--.---", "EN İYİ TUR (BEST LAP)", scale_factor, (1,1), "#00FF88")
-
-    def setup_card(self, card, icon_text, value_text, label_text, scale_factor, grid_pos, value_color="white"):
-        # 💡 DÜZELTME: Alpha değerini 100'den 30'a çektik. Neredeyse tamamen şeffaf!
-        card.setStyleSheet("""
-            QFrame {
-                background: rgba(0, 0, 0, 30); 
-                border-radius: 8px; 
-                border: none;
+        self.setStyleSheet("""
+            QWidget {
+                background: rgba(28, 32, 43, 0.95);
+                border-radius: 12px;
             }
         """)
-        card_lay = QHBoxLayout(card); card_lay.setContentsMargins(15, 5, 15, 5)
         
-        icon = QLabel(icon_text); icon.setStyleSheet(f"color: {NETFLIX_RED}; font-size: {int(32*scale_factor)}px; font-weight: bold; background: transparent;")
+        self.main_lay = QGridLayout(self)
+        self.main_lay.setContentsMargins(25, 20, 25, 20)
+        self.main_lay.setSpacing(15)
+        self.main_lay.setColumnStretch(0, 1)
+        self.main_lay.setColumnStretch(1, 1)
         
-        v_lay = QVBoxLayout(); v_lay.setSpacing(0)
+        self.card_rem = QFrame()
+        self.setup_card(self.card_rem, "⏳", "00:00", "KALAN SÜRE", scale_factor, (0,0))
+        
+        self.card_best = QFrame()
+        self.setup_card(self.card_best, "⏱️", "--:--.---", "EN İYİ TUR SÜRESİ", scale_factor, (0,1))
+        
+        self.card_curr = QFrame()
+        self.setup_card(self.card_curr, "🔄", "--:--.---", "MEVCUT TUR SÜRESİ", scale_factor, (1,0))
+        
+        self.card_track = QFrame()
+        self.setup_card(self.card_track, "📍", "BEKLENİYOR...", "PİST / ARAÇ", scale_factor, (1,1))
+
+    def setup_card(self, card, icon_text, value_text, label_text, scale_factor, grid_pos):
+        card.setStyleSheet("background: transparent; border: none;")
+        card_lay = QHBoxLayout(card)
+        card_lay.setContentsMargins(0, 0, 0, 0)
+        card_lay.setSpacing(15)
+        
+        icon = QLabel(icon_text)
+        icon.setStyleSheet(f"color: #ff3b3b; font-size: {int(24*scale_factor)}px; background: transparent;")
+        icon.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        
+        v_lay = QVBoxLayout()
+        v_lay.setSpacing(0)
         
         value_label = QLabel(value_text)
         value_label.setStyleSheet(f"""
-            color: {value_color}; 
-            font-size: {int(26*scale_factor)}px; 
-            font-weight: 900; 
+            color: #ffffff; 
+            font-size: {int(32*scale_factor)}px; 
+            font-family: 'Roboto Condensed', sans-serif;
             background: transparent;
         """)
         
         desc_label = QLabel(label_text)
-        desc_label.setStyleSheet(f"color: #DDD; font-size: {int(13*scale_factor)}px; font-weight: bold; background: transparent;")
+        desc_label.setStyleSheet(f"""
+            color: #8a92a3; 
+            font-size: {int(12*scale_factor)}px; 
+            background: transparent;
+            font-weight: bold;
+            letter-spacing: 1px;
+        """)
         
-        v_lay.addWidget(value_label); v_lay.addWidget(desc_label)
-        card_lay.addWidget(icon); card_lay.addLayout(v_lay)
+        v_lay.addWidget(value_label)
+        v_lay.addWidget(desc_label)
+        v_lay.addStretch()
+        
+        card_lay.addWidget(icon, alignment=Qt.AlignTop)
+        card_lay.addLayout(v_lay)
+        
         self.main_lay.addWidget(card, grid_pos[0], grid_pos[1])
         
         card.value_label = value_label
@@ -154,16 +175,16 @@ class MiniPillWindow(QWidget):
 
     def update_time_and_user(self, t_str, user_name):
         self.card_rem.value_label.setText(t_str)
-        self.card_track.desc_label.setText(f"{user_name[:15]} // PİST & ARAÇ")
 
     def update_telemetry(self, track, car, curr, best, scale_factor):
         if track:
-            track_and_car = f"{track[:10]} // {car[:15]}"
-            self.card_track.value_label.setText(track_and_car)
+            self.card_track.value_label.setText(f"{car[:12]}")
+            self.card_track.desc_label.setText(f"{track[:20].upper()}")
             self.card_curr.value_label.setText(curr if curr and curr != "0" else "--:--.---")
             self.card_best.value_label.setText(best if best and best != "0" else "--:--.---")
         else:
-            self.card_track.value_label.setText("PİST BEKLENİYOR")
+            self.card_track.value_label.setText("BEKLENİYOR...")
+            self.card_track.desc_label.setText("PİST / ARAÇ")
             self.card_curr.value_label.setText("--:--.---")
             self.card_best.value_label.setText("--:--.---")
 
