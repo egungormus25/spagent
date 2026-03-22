@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SpeedPoint - RaceRoom Style Leaderboard</title>
+    <title>SpeedPoint - Pro Leaderboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Teko:wght@500;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -56,7 +56,7 @@
             border-bottom: 2px solid var(--sp-red);
             padding-bottom: 15px;
         }
-
+        
         .header h1 {
             font-family: 'Teko', sans-serif;
             font-size: 5rem;
@@ -71,11 +71,12 @@
         }
 
         .header p {
-            font-size: 1.5rem;
+            font-size: 2rem; /* Başlığı biraz daha belirgin yaptık */
             color: var(--text-grey);
             margin: 5px 0 0 0;
             text-transform: uppercase;
             letter-spacing: 3px;
+            font-weight: 600;
         }
 
         .logo-area img {
@@ -142,6 +143,12 @@
             color: #ccc;
             font-weight: 600;
             margin-right: 15px;
+            display: inline-block;
+            max-width: 350px; 
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: middle;
         }
 
         .time-cell {
@@ -167,7 +174,24 @@
         }
 
         @keyframes blockIn {
-            to { opacity: 1; transform: scale(1); }
+            to { opacity: var(--target-opacity, 1); transform: scale(1); }
+        }
+        
+        @keyframes pulse-glow {
+            0% { opacity: 0.3; text-shadow: 0 0 5px rgba(229, 9, 20, 0); }
+            50% { opacity: 1; text-shadow: 0 0 30px rgba(229, 9, 20, 0.8); }
+            100% { opacity: 0.3; text-shadow: 0 0 5px rgba(229, 9, 20, 0); }
+        }
+        
+        .no-data-anim {
+            text-align: center;
+            color: var(--sp-red);
+            padding: 60px;
+            font-size: 3rem;
+            font-weight: 700;
+            letter-spacing: 8px;
+            text-transform: uppercase;
+            animation: pulse-glow 2s infinite ease-in-out;
         }
 
     </style>
@@ -181,8 +205,9 @@
         <div class="header">
             <div>
                 <h1><span>LEADERBOARD</span></h1>
-                <p>LEADERBOARD</p>
+                <p id="currentTrackTitle">ALL TRACKS</p>
             </div>
+            
             <div class="logo-area">
                 <img src="splogo.png" alt="" onerror="this.style.display='none'">
             </div>
@@ -198,23 +223,65 @@
                 </tr>
             </thead>
             <tbody id="leaderboard-body">
-                <tr><td colspan="4" style="text-align: center; color: #444; padding: 50px;">WAITING FOR TELEMETRY...</td></tr>
+                <tr><td colspan="4" class="no-data-anim">NO DATA</td></tr>
             </tbody>
         </table>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        // 💡 YENİ: doc fonksiyonunu ekledik (Ayarları dinlemek için)
+        import { getFirestore, collection, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
-        // 💡 Eğer veritabanı okuma kuralların tamamen herkese açıksa (public), sadece projectId yeterlidir.
         const firebaseConfig = {
             projectId: "speedpoint-928e1"
-            // apiKey: "EĞER GEREKİRSE FIREBASE KONSOLUNDAN ALIP BURAYA YAPIŞTIRABİLİRSİN"
         };
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+
+        let allRecords = []; 
+        let currentAdminTrack = "ALL"; // Varsayılan olarak tüm pistleri göster
+        
+        const MAX_DISPLAY_COUNT = 10;
+
+        const carDefinitions = {
+            "KS_FERRARI_488_GT3": "Ferrari 488 GT3",
+            "KS_MERCEDES_AMG_GT3": "Mercedes-AMG GT3",
+            "KS_LAMBORGHINI_HURACAN_GT3": "Lamborghini Huracan GT3",
+            "KS_PORSCHE_911_GT3_R_2016": "Porsche 911 GT3 R",
+            "KS_AUDI_R8_LMS": "Audi R8 LMS",
+            "KS_BMW_M4_GT3": "BMW M4 GT3",
+            "KS_MCLAREN_650S_GT3": "McLaren 650S GT3",
+            "KS_NISSAN_GTR_GT3": "Nissan GT-R GT3",
+            "KS_TOYOTA_GT86": "Toyota GT86"
+        };
+
+        function formatCarName(rawName) {
+            if (!rawName) return "UNKNOWN";
+            if (carDefinitions[rawName]) return carDefinitions[rawName];
+            return rawName.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, s => s.toUpperCase());
+        }
+
+        const trackDefinitions = {
+            "ks_monza": "Monza",
+            "ks_silverstone": "Silverstone",
+            "ks_spa": "Spa-Francorchamps",
+            "ks_nurburgring": "Nürburgring GP",
+            "ks_barcelona": "Barcelona",
+            "ks_brands_hatch": "Brands Hatch",
+            "ks_mugello": "Mugello",
+            "ks_laguna_seca": "Laguna Seca",
+            "ks_zandvoort": "Zandvoort",
+            "ks_imola": "Imola",
+            "ks_red_bull_ring": "Red Bull Ring"
+        };
+
+        function formatTrackName(rawName) {
+            if (!rawName) return "TRACK";
+            if (trackDefinitions[rawName.toLowerCase()]) return trackDefinitions[rawName.toLowerCase()];
+            return rawName.replace(/^ks_/i, '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, s => s.toUpperCase());
+        }
 
         function timeToMs(timeStr) {
             if (!timeStr || timeStr === "0" || timeStr === "--:--.---") return Infinity;
@@ -233,7 +300,7 @@
             tbody.innerHTML = "";
 
             if (records.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: #444; padding: 50px;">NO RECORDS YET</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" class="no-data-anim">NO DATA</td></tr>`;
                 return;
             }
 
@@ -245,12 +312,17 @@
                 tr.className = `row-${rank}`;
                 tr.style.animationDelay = `${delay}s`;
 
+                if (index >= 3) {
+                    const opacity = Math.max(0.25, 1 - (index - 2) * 0.15);
+                    tr.style.setProperty('--target-opacity', opacity);
+                }
+
                 tr.innerHTML = `
                     <td class="rank">${rank}</td>
                     <td class="driver-name">${record.userName}</td>
                     <td class="details-cell">
-                        <span class="car-name">${record.car}</span>
-                        <span>// ${record.track}</span>
+                        <span class="car-name">${record.carFormatted}</span>
+                        <span>// ${record.trackFormatted}</span>
                     </td>
                     <td class="time-cell">${record.bestTime}</td>
                 `;
@@ -258,27 +330,74 @@
             });
         }
 
-        // 💡 THE MAGIC: Sürekli istek atmak (polling) YOK! 
-        // onSnapshot, sadece veritabanında bir şey değiştiğinde tetiklenir ve sıfır kota harcar.
+        // 💡 YENİ: Ekranı Filtreleme Mantığı (Admin verisine göre)
+        function applyFilterAndRender() {
+            let filteredRecords = [];
+            const titleEl = document.getElementById("currentTrackTitle");
+            
+            if (currentAdminTrack === "ALL") {
+                titleEl.textContent = "ALL TRACKS";
+                titleEl.style.color = "var(--text-grey)";
+                filteredRecords = [...allRecords];
+            } else {
+                // TV ekranında filtrelenen pistin güzel adını yazalım
+                titleEl.textContent = formatTrackName(currentAdminTrack).toUpperCase(); 
+                titleEl.style.color = "var(--sp-red)";
+                
+                // Kayıtları, adminin seçtiği ham oyun koduyla (rawTrack) eşleştir
+                filteredRecords = allRecords.filter(r => r.rawTrack.toLowerCase() === currentAdminTrack.toLowerCase());
+            }
+
+            filteredRecords.sort((a, b) => a.timeMs - b.timeMs);
+            renderTable(filteredRecords.slice(0, MAX_DISPLAY_COUNT)); 
+        }
+
+        // 📡 1. DİNLEYİCİ: REKORLAR (Leaderboard)
         const leaderboardRef = collection(db, "leaderboard");
-        
         onSnapshot(leaderboardRef, (snapshot) => {
-            let records = [];
+            let uniqueMap = new Map();
+
             snapshot.forEach((doc) => {
                 let data = doc.data();
                 let userName = data.userName || "UNKNOWN";
-                let track = data.track || "TRACK";
-                let car = data.carModel || "VEHICLE";
+                let userId = data.userId || userName; 
+                let rawTrack = data.track || ""; // Orijinal oyun kodu (ks_monza)
+                let trackFormatted = formatTrackName(data.track);
+                let rawCar = data.carModel || "";
+                let carFormatted = formatCarName(data.carModel) || "VEHICLE";
                 let bestTime = data.bestTime || "--:--.---";
+                
                 let timeMs = timeToMs(bestTime);
-                if (timeMs !== Infinity) { records.push({ userName, track, car, bestTime, timeMs }); }
+
+                if (timeMs !== Infinity && timeMs > 0 && bestTime !== "--:--.---") { 
+                    let key = `${userId}_${rawTrack}_${rawCar}`;
+
+                    if (!uniqueMap.has(key)) {
+                        uniqueMap.set(key, { userName, rawTrack, trackFormatted, rawCar, carFormatted, bestTime, timeMs });
+                    } else {
+                        if (timeMs < uniqueMap.get(key).timeMs) {
+                            uniqueMap.set(key, { userName, rawTrack, trackFormatted, rawCar, carFormatted, bestTime, timeMs });
+                        }
+                    }
+                }
             });
             
-            records.sort((a, b) => a.timeMs - b.timeMs);
-            renderTable(records.slice(0, 10)); 
-        }, (error) => {
-            console.error("Firebase Canlı Bağlantı Hatası:", error);
-            document.getElementById("leaderboard-body").innerHTML = `<tr><td colspan="4" style="text-align: center; color: #E50914; padding: 50px;">BAĞLANTI KOPTU VEYA YETKİ YOK!</td></tr>`;
+            allRecords = Array.from(uniqueMap.values());
+            applyFilterAndRender();
+        });
+
+        // 📡 2. DİNLEYİCİ: YÖNETİCİ AYARLARI (Settings)
+        const settingsRef = doc(db, "settings", "general");
+        onSnapshot(settingsRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                // Admin bir pist seçmiş mi kontrol et, yoksa ALL yap
+                currentAdminTrack = data.activeLeaderboardTrack || "ALL";
+            } else {
+                currentAdminTrack = "ALL";
+            }
+            // Ayar değiştiği anda ekranı güncelle!
+            applyFilterAndRender();
         });
 
     </script>
