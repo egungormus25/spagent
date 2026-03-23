@@ -9,7 +9,7 @@ ENV/
 *.dll
 *.gif
 *.png
-*.jpg
+
 *.jpeg
 *.mp4
 
