@@ -4,6 +4,7 @@ import subprocess
 import threading
 import requests
 import time
+import atexit # 💡 YENİ: Kapanış sinyali için
 import firebase_admin 
 from firebase_admin import credentials, firestore 
 from PySide6.QtWidgets import *
@@ -34,6 +35,20 @@ try:
 except Exception as e:
     print(f"❌ Firebase bağlantı hatası (Key dosyasını kontrol et): {e}")
     sys.exit()
+
+# 💡 YENİ: UYGULAMA KAPANIRKEN TETİKLENEN "BEN GİDİYORUM" SİNYALİ
+def set_offline_on_exit():
+    try:
+        db.collection("machines").document(MACHINE_ID).update({
+            "isOnline": False
+        })
+        print(f"🛑 {MACHINE_ID} başarıyla Offline (Kapalı) moduna alındı.")
+    except Exception as e:
+        print(f"⚠️ Offline modu ayarlanamadı: {e}")
+
+# Kapanış olayına fonksiyonu bağla
+atexit.register(set_offline_on_exit)
+
 
 # --- 📡 NETWORK MOTORU ---
 class NetworkWorker(QObject):
@@ -267,6 +282,14 @@ class SpeedPointAgent(QWidget):
         self.session_doc_id = ""      
         self.session_total_time = "" 
 
+        # 💡 YENİ: AÇILIŞ SİNYALİ (Hemen Aktif Görünsün)
+        try:
+            db.collection("machines").document(MACHINE_ID).update({
+                "isOnline": True,
+                "lastHeartbeat": firestore.SERVER_TIMESTAMP
+            })
+        except: pass
+
         self.worker = NetworkWorker()
         self.worker.status_updated.connect(self.sync_status)
         self.worker.games_loaded.connect(self.render_games)
@@ -285,9 +308,9 @@ class SpeedPointAgent(QWidget):
 
     # 💡 GÜNCELLEME: Firebase'e Yedekleme ve Nabız Atma Fonksiyonu
     def backup_to_cloud(self):
-        # Eğer kilitliyse süreyi yedeklememize gerek yok, ama online olduğunu belirtmeliyiz
         payload = {
-            "lastHeartbeat": firestore.SERVER_TIMESTAMP
+            "lastHeartbeat": firestore.SERVER_TIMESTAMP,
+            "isOnline": True # Her nabızda online olduğunu teyit etsin
         }
         
         # Sadece oyun oynanıyorsa (kilit açıkken) süreyi de ekleyelim
