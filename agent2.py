@@ -249,7 +249,7 @@ class SpeedPointAgent(QWidget):
         self.mini_window = MiniPillWindow(self.scale_factor)
         self.mini_window.hide()
         
-        # 💡 YENİ: Çevrimdışı koruma değişkenleri
+        # 💡 Çevrimdışı koruma değişkenleri
         self.remaining_seconds = 0
         self.is_locked = True
         self.cloud_time_checkpoint = -1 
@@ -278,23 +278,28 @@ class SpeedPointAgent(QWidget):
 
         self.ticker = QTimer(self); self.ticker.timeout.connect(self.local_tick); self.ticker.start(1000)
 
-        # 💡 YENİ: Her 15 saniyede bir lokal süreyi Firebase'e yedekleyen timer (Mobil uygulama için)
+        # 💡 Her 15 saniyede bir lokal süreyi Firebase'e yedekleyen timer (Mobil uygulama için)
         self.sync_timer = QTimer(self)
         self.sync_timer.timeout.connect(self.backup_to_cloud)
         self.sync_timer.start(15000) 
 
-    # 💡 YENİ: Firebase'e Yedekleme Fonksiyonu
+    # 💡 GÜNCELLEME: Firebase'e Yedekleme ve Nabız Atma Fonksiyonu
     def backup_to_cloud(self):
-        if self.is_locked: return
+        # Eğer kilitliyse süreyi yedeklememize gerek yok, ama online olduğunu belirtmeliyiz
+        payload = {
+            "lastHeartbeat": firestore.SERVER_TIMESTAMP
+        }
         
-        payload = {"remainingTime": self.remaining_seconds}
-        
+        # Sadece oyun oynanıyorsa (kilit açıkken) süreyi de ekleyelim
+        if not self.is_locked:
+            payload["remainingTime"] = self.remaining_seconds
+            
         def _update():
             try:
                 db.collection("machines").document(MACHINE_ID).update(payload)
                 self.cloud_time_checkpoint = self.remaining_seconds
                 if self.is_offline:
-                    print("\n✅ İNTERNET BAĞLANTISI GELDİ! Lokal süre buluta senkronize edildi.")
+                    print("\n✅ İNTERNET BAĞLANTISI GELDİ! Lokal süre ve nabız buluta senkronize edildi.")
                     self.is_offline = False
             except Exception as e:
                 if not self.is_offline:
@@ -383,7 +388,7 @@ class SpeedPointAgent(QWidget):
             self.switch_to_full(); self.full_ui.setCurrentIndex(0); self.player.play()
             
         elif not self.is_locked:
-            # 💡 YENİ: Delta Sync Mantığı! Sadece bizden habersiz (Admin) eklenen süreyi lokal süremize yansıtırız.
+            # Sadece bizden habersiz (Admin) eklenen süreyi lokal süremize yansıtırız.
             if self.cloud_time_checkpoint != -1 and time_cloud != self.cloud_time_checkpoint:
                 delta = time_cloud - self.cloud_time_checkpoint
                 if delta != 0:
@@ -400,7 +405,7 @@ class SpeedPointAgent(QWidget):
             self.timer_label.setText(t_str)
             self.mini_window.update_time_and_user(t_str, self.current_user_name) 
             
-            # 💡 YENİ: Süre bittiğinde Çevrimdışı/Çevrimiçi Kilit Koruması
+            # Süre bittiğinde Çevrimdışı/Çevrimiçi Kilit Koruması
             if self.remaining_seconds <= 0:
                 self.sync_status(True, 0, "YARIŞÇI", "") 
                 
