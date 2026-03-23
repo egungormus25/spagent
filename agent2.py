@@ -4,6 +4,8 @@ import subprocess
 import threading
 import requests
 import time
+import firebase_admin # 💡 YENİ: Firebase Admin eklendi
+from firebase_admin import credentials, firestore # 💡 YENİ: Firebase Admin eklendi
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
 from PySide6.QtGui import *
@@ -13,9 +15,7 @@ from PySide6.QtMultimediaWidgets import *
 # --- ⚙️ SİSTEM AYARLARI ---
 PROJECT_ID = "speedpoint-928e1"
 MACHINE_ID = "PC_01" 
-FIRESTORE_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/machines/{MACHINE_ID}"
-GAMES_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/games"
-LEADERBOARD_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/leaderboard"
+KEY_PATH = "serviceAccountKey.json" # 💡 YENİ: Yetki dosyası yolu eklendi
 
 LOGO_FILE = "splogo.png"
 VIDEO_FILE = "background_video.mp4"
@@ -25,58 +25,71 @@ PIN_CODE = "1923"
 NETFLIX_RED = "#E50914"
 NETFLIX_BLACK = "#141414"
 
-# --- 📡 NETWORK MOTORU ---
+# --- 🔥 FİREBASE ADMİN BAĞLANTISI ---
+try:
+    cred = credentials.Certificate(KEY_PATH)
+    firebase_admin.initialize_app(cred)
+    db = firestore.client()
+    print("✅ Firebase Admin başarıyla bağlandı! Sıfır gecikme modu aktif.")
+except Exception as e:
+    print(f"❌ Firebase bağlantı hatası (Key dosyasını kontrol et): {e}")
+    sys.exit()
+
+# --- 📡 NETWORK MOTORU (YENİLENMİŞ CANLI DİNLEYİCİ) ---
 class NetworkWorker(QObject):
     status_updated = Signal(bool, int, str, str)
     games_loaded = Signal(list)
 
     def run(self):
         self.fetch_games()
+        
+        # 💡 YENİ: Saniyede bir sormak yerine Firebase'i CANLI DİNLİYORUZ (on_snapshot)
+        doc_ref = db.collection("machines").document(MACHINE_ID)
+        
+        def on_snapshot(doc_snapshot, changes, read_time):
+            for doc in doc_snapshot:
+                data = doc.to_dict()
+                if not data: continue
+                
+                is_locked = data.get("isLocked", True)
+                rem_time = int(data.get("remainingTime", 0))
+                u_id = data.get("userId", "")
+                u_name = data.get("userName", "YARIŞÇI")
+                
+                # 1. Eğer makinede YARIŞÇI yazıyorsa ve ID varsa users'tan gerçek ismi çek
+                if u_name == "YARIŞÇI" and u_id:
+                    try:
+                        user_doc = db.collection("users").document(u_id).get()
+                        if user_doc.exists:
+                            u_data = user_doc.to_dict()
+                            u_name = u_data.get("userName", u_data.get("name", "YARIŞÇI"))
+                    except Exception as e:
+                        print("Kullanıcı ismi çekilemedi:", e)
+                
+                self.status_updated.emit(is_locked, rem_time, u_name, u_id)
+                
+        # Dinleyiciyi başlat
+        self.doc_watch = doc_ref.on_snapshot(on_snapshot)
+        
+        # Thread'in kapanmaması için basit bir bekletici
         while True:
-            try:
-                r = requests.get(FIRESTORE_URL, timeout=5)
-                if r.status_code == 200:
-                    fields = r.json().get("fields", {})
-                    is_locked = fields.get("isLocked", {}).get("booleanValue", True)
-                    rem_time = int(fields.get("remainingTime", {}).get("integerValue", "0"))
-                    u_id = fields.get("userId", {}).get("stringValue", "") 
-                    
-                    # 1. Önce doğrudan makinede userName yazıyor mu diye bak
-                    u_name = fields.get("userName", {}).get("stringValue", "YARIŞÇI")
-                    
-                    # 2. 💡 EĞER MAKINEDE YOKSA (YARIŞÇI KALDIYSA) VE ID VARSA: users koleksiyonuna git!
-                    if u_name == "YARIŞÇI" and u_id:
-                        try:
-                            user_url = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/users/{u_id}"
-                            ur = requests.get(user_url, timeout=3)
-                            if ur.status_code == 200:
-                                u_fields = ur.json().get("fields", {})
-                                # 🔥 İŞTE KRİTİK DÜZELTME: Veritabanındaki gibi büyük 'N' ile userName kontrolü!
-                                if "userName" in u_fields:
-                                    u_name = u_fields["userName"].get("stringValue", "YARIŞÇI")
-                                elif "name" in u_fields:
-                                    u_name = u_fields["name"].get("stringValue", "YARIŞÇI")
-                        except: pass
-                    
-                    self.status_updated.emit(is_locked, rem_time, u_name, u_id)
-            except: pass
-            time.sleep(3)
+            time.sleep(10)
 
     def fetch_games(self):
+        # 💡 YENİ: Oyunları REST API yerine Firebase Admin ile direkt çekiyoruz
         try:
-            r = requests.get(GAMES_URL, timeout=5)
-            if r.status_code == 200:
-                docs = r.json().get("documents", [])
-                games_list = []
-                for doc in docs:
-                    f = doc.get("fields", {})
-                    games_list.append({
-                        "title": f.get("title", {}).get("stringValue", "Oyun").upper(),
-                        "imageUrl": f.get("imageUrl", {}).get("stringValue", ""),
-                        "localPath": f.get("localPath", {}).get("stringValue", "")
-                    })
-                self.games_loaded.emit(games_list)
-        except: pass
+            games_ref = db.collection("games").get()
+            games_list = []
+            for doc in games_ref:
+                f = doc.to_dict()
+                games_list.append({
+                    "title": f.get("title", "Oyun").upper(),
+                    "imageUrl": f.get("imageUrl", ""),
+                    "localPath": f.get("localPath", "")
+                })
+            self.games_loaded.emit(games_list)
+        except Exception as e: 
+            print("Oyunlar yüklenemedi:", e)
 
 class ImageLoader(QObject):
     done = Signal(QPixmap, QLabel)
@@ -370,22 +383,21 @@ class SpeedPointAgent(QWidget):
         if self.session_best_time and self.session_best_time != "0" and self.session_doc_id:
             print(f"⚡ CANLI GÜNCELLEME: {self.current_user_name} | YENİ REKOR: {self.session_best_time} | TOPLAM: {self.session_total_time}")
             
+            # 💡 YENİ: Liderlik tablosu REST API'den Firebase Admin'e geçirildi
             payload = {
-                "fields": {
-                    "userId": {"stringValue": self.current_user_id},
-                    "userName": {"stringValue": self.current_user_name},
-                    "carModel": {"stringValue": self.session_car},
-                    "track": {"stringValue": self.session_track},
-                    "bestTime": {"stringValue": self.session_best_time},
-                    "totalRaceTime": {"stringValue": self.session_total_time}
-                }
+                "userId": self.current_user_id,
+                "userName": self.current_user_name,
+                "carModel": self.session_car,
+                "track": self.session_track,
+                "bestTime": self.session_best_time,
+                "totalRaceTime": self.session_total_time
             }
             
-            doc_url = f"{LEADERBOARD_URL}/{self.session_doc_id}"
-            
             def _patch():
-                try: requests.patch(doc_url, json=payload, timeout=5)
-                except Exception as e: print(f"Bulut canlı kayıt hatası: {e}")
+                try: 
+                    db.collection("leaderboard").document(self.session_doc_id).set(payload)
+                except Exception as e: 
+                    print(f"Bulut canlı kayıt hatası: {e}")
             
             threading.Thread(target=_patch, daemon=True).start()
 

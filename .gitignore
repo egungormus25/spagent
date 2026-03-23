@@ -16,3 +16,5 @@ ENV/
 # Python cache
 __pycache__/
 *.pyc
+
+serviceAccountKey.json
